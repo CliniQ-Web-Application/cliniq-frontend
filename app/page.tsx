@@ -10,7 +10,7 @@ export default function Home() {
         </h1>
 
         {/* Tagline */}
-        <p className="mt-6 max-w-[600px] text-xl leading-8 text-neutral-600 sm:text-2xl sm:leading-9">
+        <p className="mt-6 max-w-150 text-xl leading-8 text-neutral-600 sm:text-2xl sm:leading-9">
           Book appointments, check in with QR, and track your place in the
           queue at public outpatient departments.
         </p>
@@ -19,13 +19,13 @@ export default function Home() {
         <div className="mt-10 flex w-full flex-col items-center justify-center gap-4 sm:flex-row">
           <Link
             href="/patient"
-            className="flex min-h-[52px] w-full items-center justify-center rounded-lg bg-primary px-10 text-lg font-semibold text-white no-underline shadow-sm transition hover:bg-primary-hover active:bg-primary-pressed sm:w-auto"
+            className="flex h-12 w-full items-center justify-center rounded-md px-6 text-lg bg-primary font-semibold text-white no-underline shadow-sm transition hover:bg-primary-hover sm:w-auto"
           >
             Sign in
           </Link>
           <Link
             href="/patient"
-            className="flex min-h-[52px] w-full items-center justify-center rounded-lg border-2 border-primary bg-transparent px-10 text-lg font-semibold text-primary no-underline transition hover:bg-accent-surface active:bg-accent-surface sm:w-auto"
+            className="flex h-12 w-full items-center justify-center rounded-md border-2 border-primary bg-transparent px-6 text-lg font-semibold text-primary no-underline transition hover:bg-accent-surface active:bg-accent-surface sm:w-auto"
           >
             Create account
           </Link>

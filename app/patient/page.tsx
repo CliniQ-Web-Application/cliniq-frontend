@@ -31,7 +31,7 @@ const actions = [
 export default function PatientPortal() {
   return (
     <main className="min-h-screen bg-background px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mx-auto w-full max-w-[1280px]">
+      <div className="mx-auto w-full max-w-7xl">
 
         {/* Back link */}
         <Link
@@ -68,7 +68,7 @@ export default function PatientPortal() {
             <Link
               key={title}
               href={href}
-              className="group flex min-h-28 items-center gap-5 rounded-xl border border-primary/20 bg-surface p-6 no-underline shadow-sm transition hover:border-primary hover:shadow-md"
+              className="group flex min-h-28 items-center gap-5 rounded-xl border border-primary/20 bg-surface p-6 no-underline transition hover:border-primary"
             >
               <span className="flex shrink-0 items-center justify-center rounded-lg bg-accent-surface p-3">
                 <Icon aria-hidden="true" className="text-primary" size={24} />
