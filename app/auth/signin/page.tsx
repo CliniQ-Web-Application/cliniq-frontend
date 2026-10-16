@@ -2,12 +2,14 @@
 
 import React, { useState } from "react";
 import { supabase } from "@/lib/supabase";
+import {useRouter} from "next/navigation";
 
 export default function SigninPage() {
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [message, setMessage] = useState("");
     const [loading, setLoading] = useState(false);
+    const router = useRouter();
 
     async function handleLogin(e: React.SubmitEvent<HTMLFormElement>) {
         e.preventDefault();
@@ -20,6 +22,7 @@ export default function SigninPage() {
             setMessage(error.message);
         } else if (data.session) {
             setMessage("Login successful!");
+            router.push("/patient");
         }
 
         setLoading(false);
