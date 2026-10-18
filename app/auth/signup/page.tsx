@@ -11,6 +11,7 @@ export default function SignupPage() {
     const [patientName, setPatientName] = useState("");
     const [patientSurname, setPatientSurname] = useState("");
     const [nationalID, setNationalID] = useState("");
+    const [availabilityStatus, setAvailabilityStatus] = useState("AVAILABLE");
     const [phone, setPhone] = useState("");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
