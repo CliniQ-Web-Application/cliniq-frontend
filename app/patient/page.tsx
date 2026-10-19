@@ -6,7 +6,7 @@ const actions = [
     icon: CalendarPlus,
     title: "Book appointment",
     description: "Find a time that works for you.",
-    href: "#",
+    href: "/patient/book-appointment",
   },
   {
     icon: ClipboardList,

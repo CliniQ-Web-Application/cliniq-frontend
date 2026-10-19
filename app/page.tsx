@@ -18,13 +18,13 @@ export default function Home() {
         {/* CTAs */}
         <div className="mt-10 flex w-full flex-col items-center justify-center gap-4 sm:flex-row">
           <Link
-            href="/patient"
+            href="/auth/signin"
             className="flex h-12 w-full items-center justify-center rounded-md px-6 text-lg bg-primary font-semibold text-white no-underline shadow-sm transition hover:bg-primary-hover sm:w-auto"
           >
             Sign in
           </Link>
           <Link
-            href="/patient"
+            href="/auth/signup"
             className="flex h-12 w-full items-center justify-center rounded-md border-2 border-primary bg-transparent px-6 text-lg font-semibold text-primary no-underline transition hover:bg-accent-surface active:bg-accent-surface sm:w-auto"
           >
             Create account
