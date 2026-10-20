@@ -1,41 +1,58 @@
-import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
+import { createServerClient } from "@supabase/ssr";
 
 /**
  * Protected route prefixes — any path that starts with one of these
- * requires an active Supabase session cookie.
- *
- * The Supabase auth cookie written by @supabase/ssr is named
- * "sb-<project-ref>-auth-token". We look for any cookie that starts
- * with "sb-" and ends with "-auth-token" so the check works regardless
- * of the project ref.
+ * requires an active Supabase session.
  */
 const PROTECTED_PREFIXES = ["/admin", "/patient", "/staff"];
 
-function hasAuthCookie(request: NextRequest): boolean {
-    for (const [name] of request.cookies) {
-        if (name.startsWith("sb-") && name.endsWith("-auth-token")) {
-            return true;
-        }
-    }
-    return false;
-}
+export async function middleware(request: NextRequest) {
+    let response = NextResponse.next({ request });
 
-export function middleware(request: NextRequest) {
+    // Build a Supabase server client that can read/write the session cookie.
+    const supabase = createServerClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        {
+            cookies: {
+                getAll() {
+                    return request.cookies.getAll();
+                },
+                setAll(cookiesToSet) {
+                    // Write updated cookies back onto both the request and the response
+                    // so the refreshed session is visible to downstream route handlers.
+                    cookiesToSet.forEach(({ name, value }) =>
+                        request.cookies.set(name, value)
+                    );
+                    response = NextResponse.next({ request });
+                    cookiesToSet.forEach(({ name, value, options }) =>
+                        response.cookies.set(name, value, options)
+                    );
+                },
+            },
+        }
+    );
+
+    // getUser() validates the JWT and refreshes the session cookie if needed.
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
     const { pathname } = request.nextUrl;
 
     const isProtected = PROTECTED_PREFIXES.some((prefix) =>
         pathname.startsWith(prefix)
     );
 
-    if (isProtected && !hasAuthCookie(request)) {
+    if (isProtected && !user) {
         const signInUrl = new URL("/auth/signin", request.url);
-        // Preserve the original destination so signin can redirect back
+        // Preserve the original destination so signin can redirect back.
         signInUrl.searchParams.set("next", pathname);
         return NextResponse.redirect(signInUrl);
     }
 
-    return NextResponse.next();
+    return response;
 }
 
 export const config = {
