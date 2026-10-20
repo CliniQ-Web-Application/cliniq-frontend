@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { patients as initialPatients, Patient } from "@/data/mock_data";
+import { patients as initialPatients } from "@/data/mock_data";
+import { Patient } from "@/types/Patient";
 
 interface PatientStore {
     patients: Patient[];

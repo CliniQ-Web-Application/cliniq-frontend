@@ -7,7 +7,8 @@ import {Department} from "@/types/Department";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
-const inputClass = "w-full rounded-lg border border-gray-300 p-3 outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600";
+const inputClass = "h-11 w-full rounded-lg border border-primary/25 bg-background px-3 text-sm outline-none transition placeholder:text-neutral-500 focus:border-primary focus:ring-2 focus:ring-primary/20";
+
 
 export default function StaffRegistrationPage() {
     const [staffName, setStaffName] = useState("");
@@ -132,16 +133,17 @@ export default function StaffRegistrationPage() {
     }
 
     return (
-        <main className="flex min-h-screen items-center justify-center bg-gray-50 p-6">
+        <main className="min-h-screen bg-background px-4 py-8 sm:px-6 lg:px-8">
+            <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-7xl items-center justify-center">
             <form
                 onSubmit={handleSubmit}
-                className="w-full max-w-md space-y-5 rounded-xl border bg-white p-8 shadow-sm"
+                className="w-full max-w-md space-y-5 rounded-2xl border border-primary/15 bg-surface p-6 shadow-sm sm:p-8"
             >
                 <div>
-                    <h1 className="text-3xl font-bold text-gray-900">
+                    <h1 className="text-3xl font-bold">
                         Register staff
                     </h1>
-                    <p className="mt-2 text-sm text-gray-600">
+                    <p className="mt-2 text-sm text-neutral-600">
                         Create a staff member&apos;s CliniQ account.
                     </p>
                 </div>
@@ -273,7 +275,7 @@ export default function StaffRegistrationPage() {
                     <p
                         role="status"
                         aria-live="polite"
-                        className="break-words rounded-lg bg-gray-100 p-3 text-sm text-gray-700"
+                        className="break-words rounded-lg border border-error/20 bg-error-background px-3 py-2.5 text-sm font-medium text-error"
                     >
                         {message}
                     </p>
@@ -282,11 +284,12 @@ export default function StaffRegistrationPage() {
                 <button
                     type="submit"
                     disabled={loading || loadingDepartments || departments.length === 0}
-                    className="w-full rounded-lg bg-blue-600 p-3 font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+                    className="flex min-h-11 w-full items-center justify-center rounded-lg bg-primary px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-hover disabled:opacity-50"
                 >
                     {loading ? "Creating account..." : "Register staff"}
                 </button>
             </form>
+            </div>
         </main>
     );
 }
