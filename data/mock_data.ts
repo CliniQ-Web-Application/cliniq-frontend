@@ -1,12 +1,8 @@
-export type Patient = {
-    name: string;
-    date_of_birth: string;
-    contact_info: string;
-    medical_history: string;
-    status: "waiting" | "incomplete" | "complete";
-};
+import type { Patient } from "@/types/Patient";
+export type { Patient };
 
 export const patients: Patient[] = [
+
     {
         name: "Thabo Molefe",
         date_of_birth: "1998-04-12",
