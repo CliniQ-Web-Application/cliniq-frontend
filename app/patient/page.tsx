@@ -1,18 +1,21 @@
+"use client";
+
 import Link from "next/link";
-import { ArrowLeft, CalendarPlus, ClipboardList, HeartPulse, QrCode, Clock } from "lucide-react";
+import { ArrowLeft, CalendarPlus, ClipboardList, HeartPulse, QrCode, Clock, LogOut } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
 
 const actions = [
   {
     icon: CalendarPlus,
     title: "Book appointment",
-    description: "Find a time that works for you.",
-    href: "#",
+    description: "Choose a doctor and clinic time, then confirm your booking.",
+    href: "/patient/book-appointment",
   },
   {
     icon: ClipboardList,
     title: "View appointments",
-    description: "See your upcoming care at a glance.",
-    href: "#",
+    description: "See your confirmed appointments and booking details.",
+    href: "/patient/book-appointment#my-bookings",
   },
   {
     icon: QrCode,
@@ -29,18 +32,34 @@ const actions = [
 ];
 
 export default function PatientPortal() {
+  const { profile, user, signOut } = useAuth();
+  const patientDisplayName = profile?.firstName
+    ? `${profile.firstName} ${profile.lastName || ""}`.trim()
+    : user?.email || "Patient";
+
   return (
     <main className="min-h-screen bg-background px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto w-full max-w-7xl">
 
-        {/* Back link */}
-        <Link
-          href="/"
-          className="inline-flex min-h-11 items-center gap-2 rounded-lg text-sm font-semibold text-primary no-underline transition hover:text-primary-hover"
-        >
-          <ArrowLeft aria-hidden="true" size={18} />
-          Back to portals
-        </Link>
+        {/* Top bar with back link & sign out */}
+        <div className="flex items-center justify-between">
+          <Link
+            href="/"
+            className="inline-flex min-h-11 items-center gap-2 rounded-lg text-sm font-semibold text-primary no-underline transition hover:text-primary-hover"
+          >
+            <ArrowLeft aria-hidden="true" size={18} />
+            Back to home
+          </Link>
+
+          <button
+            type="button"
+            onClick={() => signOut()}
+            className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-primary/25 px-3 text-sm font-semibold text-neutral-700 transition hover:bg-accent-surface hover:text-primary"
+          >
+            <LogOut size={16} />
+            Sign out
+          </button>
+        </div>
 
         {/* Page header */}
         <header className="mt-12 max-w-2xl">
@@ -49,7 +68,7 @@ export default function PatientPortal() {
             <span className="text-xl font-bold">CliniQ</span>
           </div>
           <p className="text-sm font-semibold uppercase tracking-[0.14em] text-primary">
-            Patient portal
+            Patient portal · Welcome, {patientDisplayName}
           </p>
           <h1 className="mt-3 text-4xl font-bold leading-tight">
             Your care, in one calm place.

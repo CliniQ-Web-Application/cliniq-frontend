@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+import { useAuth } from "@/context/AuthContext";
 import {
   Activity,
   AlertTriangle,
@@ -79,6 +80,11 @@ function StatusBadge({ active, children }: { active: boolean; children: React.Re
 
 function AdminHeader({ activePage }: { activePage: AdminPage }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const { profile, user, signOut } = useAuth();
+
+  const adminName = profile?.firstName && profile?.lastName
+    ? `${profile.firstName} ${profile.lastName}`
+    : profile?.email || user?.email || "Admin";
 
   return (
     <header className="sticky top-0 z-30 border-b border-primary/15 bg-surface/95 shadow-sm backdrop-blur">
@@ -103,9 +109,13 @@ function AdminHeader({ activePage }: { activePage: AdminPage }) {
         </nav>
         <div className="flex items-center gap-2">
           <span className="hidden rounded-full bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary sm:inline">
-            A. Sephiri · Admin
+            {adminName} · Admin
           </span>
-          <button type="button" className="hidden min-h-10 items-center gap-2 rounded-lg border border-primary/25 px-3 text-sm font-semibold text-primary transition hover:bg-accent-surface sm:flex">
+          <button
+            type="button"
+            onClick={() => signOut()}
+            className="hidden min-h-10 items-center gap-2 rounded-lg border border-primary/25 px-3 text-sm font-semibold text-primary transition hover:bg-accent-surface sm:flex"
+          >
             <LogOut size={16} />
             Logout
           </button>
@@ -122,6 +132,16 @@ function AdminHeader({ activePage }: { activePage: AdminPage }) {
                 <Icon size={17} /> {label}
               </Link>
             ))}
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false);
+                signOut();
+              }}
+              className="flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold text-red-600 no-underline hover:bg-red-50"
+            >
+              <LogOut size={17} /> Logout
+            </button>
           </div>
         </nav>
       )}
@@ -217,7 +237,8 @@ function StaffPage() {
   const visibleStaff = staff.filter((member) => `${member.name} ${member.role} ${member.department}`.toLowerCase().includes(search.toLowerCase()));
   return (
     <>
-      <PageHeading eyebrow="Access management" title="Staff accounts" description="Manage staff profiles, roles, department assignments and account status." action={<button type="button" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white shadow-sm hover:bg-primary-hover"><Plus size={16} /> Add account</button>} />
+      <PageHeading eyebrow="Access management" title="Staff accounts" description="Manage staff profiles, roles, department assignments and account status." action={<Link href="/admin/staff/register" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white shadow-sm hover:bg-primary-hover"><Plus size={16} /> Add account</Link>} />
+      <p className="mt-4 text-sm text-neutral-600">Demo data: the staff list and profile controls below are a prototype. Newly created accounts will not appear in this list.</p>
       <div className="mt-8 grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
         <section className="rounded-xl border border-primary/15 bg-surface p-5 shadow-sm"><div className="relative"><Search size={17} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name, role or department" className="h-11 w-full rounded-lg border border-primary/25 bg-background pl-10 pr-3 text-sm outline-none focus:border-primary" /></div><div className="mt-5 overflow-x-auto"><table className="w-full min-w-[560px] text-left text-sm"><thead className="border-b border-primary/15 text-neutral-500"><tr><th className="px-3 py-3">Staff member</th><th className="px-3 py-3">Role</th><th className="px-3 py-3">Department</th><th className="px-3 py-3">Status</th></tr></thead><tbody>{visibleStaff.map((member) => <tr key={member.name} onClick={() => { setSelectedName(member.name); setSaved(false); }} className={cx("cursor-pointer border-b border-primary/10 last:border-0 hover:bg-background", selectedName === member.name && "bg-accent-surface/50")}><td className="px-3 py-4"><span className="inline-flex items-center gap-2 font-semibold"><span className="flex size-8 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">{member.initials}</span>{member.name}</span></td><td className="px-3 py-4">{member.role}</td><td className="px-3 py-4">{member.department}</td><td className="px-3 py-4"><StatusBadge active={member.status === "Active"}>{member.status}</StatusBadge></td></tr>)}</tbody></table></div></section>
         <section className="rounded-xl border border-primary/15 bg-surface p-5 shadow-sm"><div className="flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.12em] text-primary">Edit profile</p><h2 className="mt-1 text-lg font-bold">{selected.name}</h2></div><Pencil size={18} className="text-neutral-500" /></div><div className="mt-6 space-y-4"><label className="block text-sm font-semibold">Role<select className="mt-1.5 h-11 w-full rounded-lg border border-primary/25 bg-background px-3 font-normal"><option>{selected.role}</option><option>Admin</option><option>Nurse</option><option>Reception</option></select></label><label className="block text-sm font-semibold">Department<select className="mt-1.5 h-11 w-full rounded-lg border border-primary/25 bg-background px-3 font-normal"><option>{selected.department}</option><option>General</option><option>Paediatrics</option><option>Dental</option><option>Eye clinic</option></select></label><div><p className="text-sm font-semibold">Weekly schedule</p><div className="mt-2 flex flex-wrap gap-2">{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => <button type="button" key={day} className="rounded-md bg-accent-surface px-2.5 py-1.5 text-xs font-semibold text-primary">{day}</button>)}</div></div></div><div className="mt-7 flex gap-3"><button type="button" className="min-h-10 flex-1 rounded-lg border border-error px-3 text-sm font-semibold text-error hover:bg-error-background">Deactivate</button><button type="button" onClick={() => setSaved(true)} className="min-h-10 flex-1 rounded-lg bg-primary px-3 text-sm font-semibold text-white hover:bg-primary-hover">Save changes</button></div>{saved && <p className="mt-3 text-center text-sm font-semibold text-success">Changes saved for {selected.name}.</p>}</section>
@@ -252,16 +273,18 @@ function AuditPage() {
   );
 }
 
-export default function AdminShell({ activePage }: { activePage: AdminPage }) {
+export default function AdminShell({ activePage, children }: { activePage: AdminPage; children?: ReactNode }) {
   return (
     <div className="min-h-screen bg-background">
       <AdminHeader activePage={activePage} />
       <main className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
-        {activePage === "analytics" && <AnalyticsPage />}
-        {activePage === "queues" && <QueuePage />}
-        {activePage === "staff" && <StaffPage />}
-        {activePage === "departments" && <DepartmentsPage />}
-        {activePage === "audit" && <AuditPage />}
+        {children ?? <>
+          {activePage === "analytics" && <AnalyticsPage />}
+          {activePage === "queues" && <QueuePage />}
+          {activePage === "staff" && <StaffPage />}
+          {activePage === "departments" && <DepartmentsPage />}
+          {activePage === "audit" && <AuditPage />}
+        </>}
       </main>
     </div>
   );

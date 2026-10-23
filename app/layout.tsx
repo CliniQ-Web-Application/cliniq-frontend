@@ -2,6 +2,9 @@ import type { Metadata } from "next";
 import { Bricolage_Grotesque, DM_Sans } from "next/font/google";
 import "./globals.css";
 import React from "react";
+import { Providers } from "@/app/providers";
+import { AuthProvider } from "@/context/AuthContext";
+import AuthGuard from "@/components/auth/AuthGuard";
 
 const bricolage = Bricolage_Grotesque({
   variable: "--font-bricolage",
@@ -22,9 +25,15 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html
       lang="en"
-      className={`${dmSans.variable} h-full antialiased`}
+      className={`${dmSans.variable} ${bricolage.variable} h-full antialiased`}
     >
-      <body className={`${dmSans.className} min-h-full`}>{children}</body>
+      <body className={`${dmSans.className} min-h-full`}>
+        <Providers>
+          <AuthProvider>
+            <AuthGuard>{children}</AuthGuard>
+          </AuthProvider>
+        </Providers>
+      </body>
     </html>
   );
 }

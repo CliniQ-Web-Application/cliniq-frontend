@@ -1,10 +1,11 @@
 "use client";
 
 import { SubmitEvent, useState } from "react";
-import { Check, Menu, X } from "lucide-react";
+import { Check, LogOut, Menu, X } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Patient } from "@/data/mock_data";
 import { usePatientStore } from "@/store/patientStore";
+import { useAuth } from "@/context/AuthContext";
 
 type PatientFormData = {
   name: string;
@@ -19,7 +20,13 @@ export default function Header() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [walkInFormOpen, setWalkInFormOpen] = useState(false);
 
+  const { profile, user, signOut } = useAuth();
   const addPatient = usePatientStore((state) => state.addPatient);
+
+  const staffName = profile?.firstName && profile?.lastName
+    ? `${profile.firstName} ${profile.lastName}`
+    : profile?.email || user?.email || "Staff Member";
+  const staffRoleLabel = profile?.staffRole || "STAFF";
 
   const [formData, setFormData] = useState<PatientFormData>({
     name: "",
@@ -71,16 +78,21 @@ export default function Header() {
       <header className="fixed left-0 top-0 z-50 w-full border-b border-primary/20 bg-surface shadow-sm">
         <div className="mx-auto flex w-full max-w-[1280px] items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
 
-          {/* Brand */}
-          <span className="text-xl font-bold text-primary">
-            CliniQ{" "}
-            <span className="text-sm font-normal text-neutral-500">
-              | Staff Portal
+          {/* Brand & Staff Info */}
+          <div className="flex items-center gap-3">
+            <span className="text-xl font-bold text-primary">
+              CliniQ{" "}
+              <span className="text-sm font-normal text-neutral-500">
+                | Staff Portal
+              </span>
             </span>
-          </span>
+            <span className="hidden rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary lg:inline">
+              {staffName} · {staffRoleLabel}
+            </span>
+          </div>
 
           {/* Desktop controls */}
-          <div className="hidden items-center gap-5 md:flex">
+          <div className="hidden items-center gap-4 md:flex">
 
             {/* Availability toggle */}
             <div className="flex items-center gap-2 text-sm">
@@ -124,6 +136,17 @@ export default function Header() {
             >
               Walk-in form
             </button>
+
+            {/* Sign out button */}
+            <button
+              type="button"
+              onClick={() => signOut()}
+              className="flex min-h-10 items-center gap-1.5 rounded-lg border border-primary/25 px-3 text-sm font-semibold text-neutral-700 transition hover:bg-accent-surface hover:text-primary"
+              title="Sign out"
+            >
+              <LogOut size={16} />
+              <span>Sign out</span>
+            </button>
           </div>
 
           {/* Mobile hamburger */}
@@ -140,6 +163,10 @@ export default function Header() {
         {/* Mobile dropdown */}
         {menuOpen && (
           <div className="border-t border-primary/20 bg-surface px-4 py-4 md:hidden">
+            <div className="mb-3 text-xs font-semibold text-primary">
+              {staffName} · {staffRoleLabel}
+            </div>
+
             <div className="mb-4 flex items-center justify-between">
               <span className="text-sm font-medium">Availability</span>
               <div className="flex items-center gap-2 text-xs">
@@ -172,9 +199,21 @@ export default function Header() {
             <button
               type="button"
               onClick={openWalkInForm}
-              className="flex w-full min-h-10 items-center justify-center rounded-lg border-2 border-primary text-sm font-semibold text-primary transition hover:bg-accent-surface"
+              className="mb-3 flex w-full min-h-10 items-center justify-center rounded-lg border-2 border-primary text-sm font-semibold text-primary transition hover:bg-accent-surface"
             >
               Walk-in form
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false);
+                signOut();
+              }}
+              className="flex w-full min-h-10 items-center justify-center gap-2 rounded-lg border border-red-200 text-sm font-semibold text-red-600 transition hover:bg-red-50"
+            >
+              <LogOut size={16} />
+              <span>Sign out</span>
             </button>
           </div>
         )}
