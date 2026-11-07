@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   availableBookingSlots, localDateValue, bookingBody, patientProfileBody,
-  parseBookingConfirmation, BookingRequestError, createBookingApi,
+  parseBookingConfirmation, BookingRequestError, createBookingApi, slotCapacityLabel,
 } from "../lib/booking.ts";
 
 const slot = {
@@ -70,6 +70,12 @@ test("does not discard server-authoritative dates based on the browser calendar"
 
 test("handles empty schedules", () => {
   assert.deepEqual(availableBookingSlots([]), []);
+});
+
+test("describes remaining capacity when a window declares one", () => {
+  assert.equal(slotCapacityLabel({ capacity: 20, bookedCount: 3 }), "3 of 20 booked");
+  assert.equal(slotCapacityLabel({ capacity: 1 }), "0 of 1 booked");
+  assert.equal(slotCapacityLabel({}), null);
 });
 
 test("formats a local calendar date with zero padding instead of UTC conversion", () => {

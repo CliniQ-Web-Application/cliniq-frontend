@@ -1,83 +1,164 @@
 "use client";
 
-import { SubmitEvent, useState } from "react";
-import { Check, LogOut, Menu, X } from "lucide-react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { LogOut, Menu, Search, UserPlus, X } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
-import { Patient } from "@/data/mock_data";
-import { usePatientStore } from "@/store/patientStore";
 import { useAuth } from "@/context/AuthContext";
+import { supabase } from "@/lib/supabase";
+import { createStaffApi, StaffApiError } from "@/lib/staff";
 
-type PatientFormData = {
-  name: string;
-  contact_info: string;
-  date_of_birth: string;
-  medical_history: string;
+type WalkInPatient = {
+  patientID: string;
+  patientName: string;
+  patientSurname: string;
+  patientEmail: string;
+  phone: string | null;
 };
 
-export default function Header() {
-  const [checkedIn, setCheckedIn] = useState(false);
-  const [available, setAvailable] = useState(false);
+const fieldClass =
+  "h-10 w-full rounded-lg border border-primary/30 bg-background px-3 text-sm transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20";
+
+export default function Header({ onChanged }: { onChanged?: () => void }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [walkInFormOpen, setWalkInFormOpen] = useState(false);
+  const [available, setAvailable] = useState(false);
+  const [availabilitySaving, setAvailabilitySaving] = useState(false);
+  const [availabilityError, setAvailabilityError] = useState("");
+  const [walkInQuery, setWalkInQuery] = useState("");
+  const [walkInPatientId, setWalkInPatientId] = useState("");
+  const [patients, setPatients] = useState<WalkInPatient[]>([]);
+  const [patientsLoading, setPatientsLoading] = useState(false);
+  const [patientsError, setPatientsError] = useState("");
+  const [walkInSaving, setWalkInSaving] = useState(false);
+  const [walkInError, setWalkInError] = useState("");
+  const [walkInDone, setWalkInDone] = useState("");
 
   const { profile, user, signOut } = useAuth();
-  const addPatient = usePatientStore((state) => state.addPatient);
-
   const staffName = profile?.firstName && profile?.lastName
     ? `${profile.firstName} ${profile.lastName}`
     : profile?.email || user?.email || "Staff Member";
   const staffRoleLabel = profile?.staffRole || "STAFF";
+  const userId = user?.id ?? null;
 
-  const [formData, setFormData] = useState<PatientFormData>({
-    name: "",
-    contact_info: "",
-    date_of_birth: "",
-    medical_history: "",
-  });
+  const api = useMemo(() => createStaffApi({
+    baseUrl: process.env.NEXT_PUBLIC_API_URL,
+    getToken: async () => {
+      const { data, error } = await supabase.auth.getSession();
+      return !error && data.session?.user.id === userId ? data.session.access_token : null;
+    },
+    refreshToken: async () => {
+      const { data, error } = await supabase.auth.refreshSession();
+      return !error && data.session?.user.id === userId ? data.session.access_token : null;
+    },
+  }), [userId]);
 
-  function handleCheckIn() {
-    setCheckedIn((current) => !current);
+  // Reflect the staff member's real availability from their profile.
+  useEffect(() => {
+    setAvailable(String(profile?.availabilityStatus ?? "").toUpperCase() === "AVAILABLE");
+  }, [profile?.availabilityStatus]);
+
+  async function handleAvailability(next: boolean) {
+    if (availabilitySaving) return;
+    const previous = available;
+    setAvailable(next);
+    setAvailabilitySaving(true);
+    setAvailabilityError("");
+    try {
+      await api("/staff/me/availability", {
+        method: "PATCH",
+        body: JSON.stringify({ status: next ? "AVAILABLE" : "UNAVAILABLE" }),
+      });
+      onChanged?.();
+    } catch (cause) {
+      setAvailable(previous);
+      setAvailabilityError(cause instanceof StaffApiError ? cause.message : "Could not update your availability.");
+    } finally {
+      setAvailabilitySaving(false);
+    }
   }
 
-  function handleAvailability() {
-    setAvailable((current) => !current);
-  }
-
-  function openWalkInForm() {
+  async function openWalkInForm() {
     setWalkInFormOpen(true);
     setMenuOpen(false);
+    setWalkInDone("");
+    setWalkInError("");
+    setPatientsLoading(true);
+    setPatientsError("");
+    try {
+      const data = await api("/patients");
+      setPatients(Array.isArray(data) ? data as WalkInPatient[] : []);
+    } catch (cause) {
+      setPatientsError(cause instanceof StaffApiError ? cause.message : "Could not load registered patients.");
+    } finally {
+      setPatientsLoading(false);
+    }
   }
 
   function closeWalkInForm() {
     setWalkInFormOpen(false);
-    setFormData({
-      name: "",
-      contact_info: "",
-      date_of_birth: "",
-      medical_history: "",
-    });
+    setWalkInQuery("");
+    setWalkInPatientId("");
+    setWalkInError("");
+    setPatientsError("");
   }
 
-  function handleInputChange(
-    event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
-  ) {
-    const { name, value } = event.target;
-    setFormData((current) => ({ ...current, [name]: value }));
-  }
-
-  function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
+  async function handleWalkInSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const newPatient: Patient = { ...formData, status: "incomplete" };
-    addPatient(newPatient);
-    closeWalkInForm();
+    if (walkInSaving) return;
+    if (!walkInPatientId) {
+      setWalkInError("Select the registered patient to check in.");
+      return;
+    }
+    if (!profile?.departmentId) {
+      setWalkInError("Your staff account has no department assigned. Ask an administrator to assign one.");
+      return;
+    }
+    setWalkInSaving(true);
+    setWalkInError("");
+    setWalkInDone("");
+    try {
+      const created = await api("/appointments/walk-in", {
+        method: "POST",
+        body: JSON.stringify({ patientId: walkInPatientId, departmentId: profile.departmentId }),
+      }) as { appointmentId?: string } | null;
+      setWalkInDone(created?.appointmentId ? `Walk-in registered and queued (ID ${created.appointmentId}).` : "Walk-in registered and queued.");
+      setWalkInPatientId("");
+      onChanged?.();
+    } catch (cause) {
+      setWalkInError(cause instanceof StaffApiError ? cause.message : "Could not register the walk-in. Please try again.");
+    } finally {
+      setWalkInSaving(false);
+    }
   }
+
+  const query = walkInQuery.trim().toLowerCase();
+  const filteredPatients = patients.filter((patient) =>
+    !query ||
+    `${patient.patientName} ${patient.patientSurname}`.toLowerCase().includes(query) ||
+    patient.patientEmail.toLowerCase().includes(query) ||
+    String(patient.phone ?? "").includes(query)
+  );
+
+  const availabilitySwitch = (
+    <div className="flex items-center gap-2 text-sm">
+      <span className={available ? "text-neutral-400" : "font-medium text-foreground"}>
+        Not available
+      </span>
+      <Switch
+        checked={available}
+        onCheckedChange={handleAvailability}
+        disabled={availabilitySaving}
+      />
+      <span className={available ? "font-medium text-foreground" : "text-neutral-400"}>
+        Available
+      </span>
+    </div>
+  );
 
   return (
     <>
-      {/* ─── Top nav bar ─── */}
       <header className="fixed left-0 top-0 z-50 w-full border-b border-primary/20 bg-surface shadow-sm">
         <div className="mx-auto flex w-full max-w-[1280px] items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
-
           {/* Brand & Staff Info */}
           <div className="flex items-center gap-3">
             <span className="text-xl font-bold text-primary">
@@ -93,58 +174,27 @@ export default function Header() {
 
           {/* Desktop controls */}
           <div className="hidden items-center gap-4 md:flex">
-
-            {/* Availability toggle */}
-            <div className="flex items-center gap-2 text-sm">
-              <span className={available ? "text-neutral-400" : "font-medium text-foreground"}>
-                Not available
-              </span>
-              <Switch checked={available} onCheckedChange={handleAvailability} />
-              <span className={available ? "font-medium text-foreground" : "text-neutral-400"}>
-                Available
-              </span>
+            <div className="flex flex-col items-end">
+              {availabilitySwitch}
+              {availabilityError && <p role="alert" className="mt-1 text-xs text-error">{availabilityError}</p>}
             </div>
 
-            {/* Check-in button */}
-            <button
-              type="button"
-              onClick={handleCheckIn}
-              className={`flex min-h-10 items-center gap-1.5 rounded-lg px-4 text-sm font-semibold text-white shadow-sm transition ${
-                checkedIn
-                  ? "bg-success hover:opacity-90"
-                  : "bg-primary hover:bg-primary-hover"
-              }`}
-            >
-              {checkedIn ? (
-                <>
-                  <span>Checked in</span>
-                  <Check size={15} />
-                </>
-              ) : (
-                <>
-                  <span>Checked out</span>
-                  <X size={15} />
-                </>
-              )}
-            </button>
-
-            {/* Walk-in form button */}
             <button
               type="button"
               onClick={openWalkInForm}
-              className="flex min-h-10 items-center rounded-lg border-2 border-primary px-4 text-sm font-semibold text-primary transition hover:bg-accent-surface"
+              className="flex min-h-10 items-center gap-1.5 rounded-lg border-2 border-primary px-4 text-sm font-semibold text-primary transition hover:bg-accent-surface"
             >
-              Walk-in form
+              <UserPlus size={15} aria-hidden="true" />
+              Walk-in
             </button>
 
-            {/* Sign out button */}
             <button
               type="button"
               onClick={() => signOut()}
               className="flex min-h-10 items-center gap-1.5 rounded-lg border border-primary/25 px-3 text-sm font-semibold text-neutral-700 transition hover:bg-accent-surface hover:text-primary"
               title="Sign out"
             >
-              <LogOut size={16} />
+              <LogOut size={16} aria-hidden="true" />
               <span>Sign out</span>
             </button>
           </div>
@@ -155,6 +205,7 @@ export default function Header() {
             onClick={() => setMenuOpen((c) => !c)}
             className="rounded-lg p-2 md:hidden"
             aria-label="Toggle menu"
+            aria-expanded={menuOpen}
           >
             {menuOpen ? <X size={24} /> : <Menu size={24} />}
           </button>
@@ -169,39 +220,17 @@ export default function Header() {
 
             <div className="mb-4 flex items-center justify-between">
               <span className="text-sm font-medium">Availability</span>
-              <div className="flex items-center gap-2 text-xs">
-                <span className={available ? "text-neutral-400" : "font-semibold text-foreground"}>
-                  Off
-                </span>
-                <Switch checked={available} onCheckedChange={handleAvailability} size="sm" />
-                <span className={available ? "font-semibold text-foreground" : "text-neutral-400"}>
-                  On
-                </span>
-              </div>
+              {availabilitySwitch}
             </div>
-
-            <button
-              type="button"
-              onClick={handleCheckIn}
-              className={`mb-3 flex w-full min-h-10 items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-semibold text-white transition ${
-                checkedIn
-                  ? "bg-success hover:opacity-90"
-                  : "bg-primary hover:bg-primary-hover"
-              }`}
-            >
-              {checkedIn ? (
-                <><span>Checked in</span><Check size={15} /></>
-              ) : (
-                <><span>Checked out</span><X size={15} /></>
-              )}
-            </button>
+            {availabilityError && <p role="alert" className="mb-3 text-xs text-error">{availabilityError}</p>}
 
             <button
               type="button"
               onClick={openWalkInForm}
-              className="mb-3 flex w-full min-h-10 items-center justify-center rounded-lg border-2 border-primary text-sm font-semibold text-primary transition hover:bg-accent-surface"
+              className="mb-3 flex w-full min-h-10 items-center justify-center gap-1.5 rounded-lg border-2 border-primary text-sm font-semibold text-primary transition hover:bg-accent-surface"
             >
-              Walk-in form
+              <UserPlus size={15} aria-hidden="true" />
+              Walk-in
             </button>
 
             <button
@@ -212,7 +241,7 @@ export default function Header() {
               }}
               className="flex w-full min-h-10 items-center justify-center gap-2 rounded-lg border border-red-200 text-sm font-semibold text-red-600 transition hover:bg-red-50"
             >
-              <LogOut size={16} />
+              <LogOut size={16} aria-hidden="true" />
               <span>Sign out</span>
             </button>
           </div>
@@ -228,13 +257,12 @@ export default function Header() {
           aria-labelledby="walkin-title"
         >
           <form
-            onSubmit={handleSubmit}
-            className="w-full max-w-md space-y-5 rounded-2xl border border-primary/20 bg-surface p-6 shadow-xl"
+            onSubmit={handleWalkInSubmit}
+            className="w-full max-w-md space-y-4 rounded-2xl border border-primary/20 bg-surface p-6 shadow-xl"
           >
-            {/* Modal header */}
             <div className="flex items-center justify-between">
               <h2 id="walkin-title" className="text-lg font-bold">
-                Walk-in Patient
+                Walk-in patient
               </h2>
               <button
                 type="button"
@@ -245,103 +273,58 @@ export default function Header() {
                 <X size={20} />
               </button>
             </div>
+            <p className="text-sm text-neutral-600">
+              Select a registered patient to add them to your department's waiting queue immediately.
+            </p>
 
-            {/* Patient Name */}
-            <div>
-              <label
-                htmlFor="name"
-                className="mb-1.5 block text-sm font-semibold"
-              >
-                Patient Name
-              </label>
-              <input
-                id="name"
-                name="name"
-                type="text"
-                value={formData.name}
-                onChange={handleInputChange}
+            <label htmlFor="patient-search" className="block text-sm font-semibold">
+              Find patient
+              <div className="relative mt-1.5">
+                <Search size={16} aria-hidden="true" className="pointer-events-none absolute left-3 top-3 text-neutral-400" />
+                <input
+                  id="patient-search"
+                  type="text"
+                  value={walkInQuery}
+                  onChange={(event) => setWalkInQuery(event.target.value)}
+                  placeholder="Name, email or phone"
+                  autoComplete="off"
+                  className={`${fieldClass} pl-9`}
+                />
+              </div>
+            </label>
+
+            <label htmlFor="walk-in-patient" className="block text-sm font-semibold">
+              Registered patient
+              <select
+                id="walk-in-patient"
                 required
-                placeholder="Full name"
-                className="h-10 w-full rounded-lg border border-primary/30 bg-background px-3 text-sm transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              {/* Contact */}
-              <div>
-                <label
-                  htmlFor="contact_info"
-                  className="mb-1.5 block text-sm font-semibold"
-                >
-                  Contact Number
-                </label>
-                <input
-                  id="contact_info"
-                  name="contact_info"
-                  type="tel"
-                  value={formData.contact_info}
-                  onChange={handleInputChange}
-                  required
-                  placeholder="+267 71 234 567"
-                  className="h-10 w-full rounded-lg border border-primary/30 bg-background px-3 text-sm transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                />
-              </div>
-
-              {/* Date of birth */}
-              <div>
-                <label
-                  htmlFor="date_of_birth"
-                  className="mb-1.5 block text-sm font-semibold"
-                >
-                  Date of Birth
-                </label>
-                <input
-                  id="date_of_birth"
-                  name="date_of_birth"
-                  type="date"
-                  value={formData.date_of_birth}
-                  onChange={handleInputChange}
-                  required
-                  className="h-10 w-full rounded-lg border border-primary/30 bg-background px-3 text-sm transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                />
-              </div>
-            </div>
-
-            {/* Medical history */}
-            <div>
-              <label
-                htmlFor="medical_history"
-                className="mb-1.5 block text-sm font-semibold"
+                value={walkInPatientId}
+                onChange={(event) => setWalkInPatientId(event.target.value)}
+                className={`${fieldClass} mt-1.5`}
+                disabled={patientsLoading || Boolean(patientsError)}
               >
-                Medical History
-              </label>
-              <textarea
-                id="medical_history"
-                name="medical_history"
-                value={formData.medical_history}
-                onChange={handleInputChange}
-                rows={4}
-                placeholder="Briefly describe any known conditions…"
-                className="w-full resize-none rounded-lg border border-primary/30 bg-background p-3 text-sm transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-              />
-            </div>
+                <option value="">{patientsLoading ? "Loading patients..." : "Select a patient"}</option>
+                {filteredPatients.map((patient) => (
+                  <option key={patient.patientID} value={patient.patientID}>
+                    {patient.patientSurname}, {patient.patientName} — {patient.patientEmail}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {filteredPatients.length === 0 && !patientsLoading && !patientsError && (
+              <p className="text-xs text-neutral-500">No registered patient matches “{walkInQuery.trim()}”.</p>
+            )}
+            {patientsError && <p role="alert" className="text-sm text-error">{patientsError}</p>}
+            {walkInError && <p role="alert" className="text-sm text-error">{walkInError}</p>}
+            {walkInDone && <p role="status" className="text-sm font-medium text-success">{walkInDone}</p>}
 
-            {/* Actions */}
-            <div className="flex gap-3 pt-1">
-              <button
-                type="button"
-                onClick={closeWalkInForm}
-                className="flex flex-1 min-h-10 items-center justify-center rounded-lg border-2 border-error text-sm font-semibold text-error transition hover:bg-error-background"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="flex flex-1 min-h-10 items-center justify-center rounded-lg bg-primary text-sm font-semibold text-white shadow-sm transition hover:bg-primary-hover"
-              >
-                Add Patient
-              </button>
-            </div>
+            <button
+              type="submit"
+              disabled={walkInSaving || patientsLoading || Boolean(patientsError)}
+              className="min-h-11 w-full rounded-lg bg-primary px-4 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {walkInSaving ? "Registering walk-in..." : "Add to waiting queue"}
+            </button>
           </form>
         </div>
       )}

@@ -282,7 +282,7 @@ in builds, or in CI. Running it writes to the selected remote project.
    exists in `department`. Obtain its `department_id` UUID using an authorized
    administration workflow. This script never creates departments or runs
    migrations.
-3. Copy `.env.example` to `.env.local` in `cliniq-frontend` and fill in the empty
+3. Copy `.env` to `.env.local` in `cliniq-frontend` and fill in the empty
    values privately. If `.env.local` already exists, **merge only the missing
    keys**; do not overwrite existing application configuration.
 
@@ -299,7 +299,7 @@ in builds, or in CI. Running it writes to the selected remote project.
 These are **server/operator-only** environment variables. Never use
 `NEXT_PUBLIC_` prefixes for them, import the script into application code, commit
 `.env.local`, or share the service-role key/password in logs or screenshots.
-The blank `.env.example` contains no credentials and is explicitly allowed by
+The blank `.env` contains no credentials and is explicitly allowed by
 `.gitignore`. Real environment files remain ignored. Quote values containing `#` in `.env.local`
 according to Node's env-file syntax. Existing process environment variables take
 precedence over file values, so verify the target project before running.
@@ -371,6 +371,13 @@ prerequisite; it does not replace the existing registration API.
 and profile requests use the patient's bearer token. An explicit 401 triggers
 one token refresh and retry; token changes do not reset the selection or success.
 No credentials or patient ownership identifiers are supplied by the form.
+
+`NEXT_PUBLIC_SUPABASE_URL` must identify the **same** Supabase project as the
+backend's `JWT_ISSUER_URI`. If they differ, sign-in still succeeds in the
+browser but every backend request is rejected with 401 because the token's
+issuer and signing key belong to another project. Changing this value requires
+restarting the Next.js dev/production process so the inlined public variables
+are rebuilt.
 
 The page checks `GET /api/patients/me`. A 404 shows a required profile form
 (first name, surname, National ID, phone), prefilled from signup metadata for the

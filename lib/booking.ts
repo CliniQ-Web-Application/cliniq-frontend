@@ -6,6 +6,8 @@ export interface BookingSlot {
   startTime: string;
   endTime: string;
   slotStatus: "OPEN" | "BOOKED" | "BLOCKED";
+  capacity?: number;
+  bookedCount?: number;
   staff: {
     staffId: string;
     firstName: string;
@@ -50,6 +52,11 @@ export function availableBookingSlots(slots: BookingSlot[]): BookingSlot[] {
     slot.staff.staffRole === "DOCTOR" &&
     Boolean(slot.staff.department?.departmentId)
   ).sort((a, b) => `${a.slotDate}T${a.startTime}`.localeCompare(`${b.slotDate}T${b.startTime}`));
+}
+
+export function slotCapacityLabel(slot: Pick<BookingSlot, "capacity" | "bookedCount">): string | null {
+  if (typeof slot.capacity !== "number") return null;
+  return `${slot.bookedCount ?? 0} of ${slot.capacity} booked`;
 }
 
 export function localDateValue(date: Date): string {

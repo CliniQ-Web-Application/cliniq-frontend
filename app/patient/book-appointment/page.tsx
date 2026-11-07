@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import Link from "next/link";
 import { ArrowLeft, CalendarPlus } from "lucide-react";
@@ -8,7 +8,7 @@ import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
 import {
   availableBookingSlots, bookingBody, BookingRequestError, createBookingApi,
-  parseBookingConfirmation, patientProfileBody,
+  parseBookingConfirmation, patientProfileBody, slotCapacityLabel,
   type BookingConfirmation, type BookingSlot, type PatientProfileInput,
 } from "@/lib/booking";
 
@@ -301,7 +301,7 @@ function PatientBooking({ user }: { user: User }) {
             <label className="block text-sm font-semibold">Clinic time
               <select required value={slotId} disabled={controlsDisabled || !date} className={inputClass} onChange={(event) => setSlotId(event.target.value)}>
                 <option value="">Select a time</option>
-                {dateSlots.map((slot) => <option key={slot.slotId} value={slot.slotId}>{slot.startTime.slice(0, 5)} – {slot.endTime.slice(0, 5)}</option>)}
+                {dateSlots.map((slot) => <option key={slot.slotId} value={slot.slotId}>{slot.startTime.slice(0, 5)} – {slot.endTime.slice(0, 5)}{slotCapacityLabel(slot) ? ` · ${slotCapacityLabel(slot)}` : ""}</option>)}
               </select>
             </label>
           </fieldset>
@@ -309,7 +309,8 @@ function PatientBooking({ user }: { user: User }) {
           {selectedSlot && <section aria-label="Appointment selection" aria-live="polite" className="rounded-xl bg-background p-4 text-sm">
             <h2 className="font-semibold">Your selection — not booked</h2>
             <p className="mt-2">{selectedSlot.staff?.department?.name} · Dr. {selectedSlot.staff?.firstName} {selectedSlot.staff?.lastName}</p>
-            <p>{selectedSlot.slotDate} · {selectedSlot.startTime.slice(0, 5)} – {selectedSlot.endTime.slice(0, 5)}</p>
+            <p>{selectedSlot.slotDate} · {selectedSlot.startTime.slice(0, 5)} – {selectedSlot.endTime.slice(0, 5)}{slotCapacityLabel(selectedSlot) ? ` · ${slotCapacityLabel(selectedSlot)}` : ""}</p>
+            <p className="mt-1 text-xs text-neutral-500">You will be served in the order appointments are booked.</p>
           </section>}
           <button type="submit" disabled={controlsDisabled || !selectedSlot} className={`${buttonClass} w-full`}>{submitting ? "Booking appointment..." : "Confirm booking"}</button>
           <button type="button" disabled={submitting || loading || savingProfile} onClick={() => void loadAvailability(signal())} className="min-h-11 text-primary underline disabled:opacity-50">Refresh availability</button>

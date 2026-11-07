@@ -7,6 +7,8 @@ export interface UserProfile {
   email?: string;
   role: UserRole;
   staffRole?: "ADMIN" | "DOCTOR" | "NURSE" | "RECEPTIONIST" | string;
+  staffId?: string;
+  availabilityStatus?: string;
   firstName?: string;
   lastName?: string;
   departmentId?: string;
@@ -23,7 +25,7 @@ export async function fetchUserProfile(userId: string): Promise<UserProfile> {
   try {
     const { data: staff, error: staffError } = await supabase
       .from("staff")
-      .select("staff_id, auth_user_id, first_name, last_name, staff_role, email, department_id, is_active")
+      .select("staff_id, auth_user_id, first_name, last_name, staff_role, email, department_id, is_active, availability_status")
       .eq("auth_user_id", userId)
       .maybeSingle();
 
@@ -38,6 +40,8 @@ export async function fetchUserProfile(userId: string): Promise<UserProfile> {
         email: staff.email,
         role: isStaffAdmin ? "ADMIN" : "STAFF",
         staffRole: staff.staff_role,
+        staffId: staff.staff_id,
+        availabilityStatus: staff.availability_status,
         firstName: staff.first_name,
         lastName: staff.last_name,
         departmentId: staff.department_id,
