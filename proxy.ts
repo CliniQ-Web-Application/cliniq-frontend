@@ -2,9 +2,16 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 const PROTECTED_PREFIXES = ["/admin", "/patient", "/staff"];
+const isTemporaryAuthBypassEnabled =
+    process.env.NODE_ENV === "development" &&
+    process.env.NEXT_PUBLIC_CLINIQ_BYPASS_AUTH === "true";
 
 export async function proxy(request: NextRequest) {
     let response = NextResponse.next({ request });
+
+    if (isTemporaryAuthBypassEnabled) {
+        return response;
+    }
 
     // Build a Supabase server client that reads/writes session cookies
     const supabase = createServerClient(

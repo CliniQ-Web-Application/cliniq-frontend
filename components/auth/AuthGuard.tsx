@@ -5,6 +5,10 @@ import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { getRoleDestination, isRouteAllowed } from "@/lib/auth";
 
+const isTemporaryAuthBypassEnabled =
+  process.env.NODE_ENV === "development" &&
+  process.env.NEXT_PUBLIC_CLINIQ_BYPASS_AUTH === "true";
+
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, role, loading } = useAuth();
   const pathname = usePathname();
@@ -17,6 +21,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     pathname.startsWith("/patient");
 
   useEffect(() => {
+    if (isTemporaryAuthBypassEnabled) return;
     if (loading) return;
 
     // 1. If user is logged in and visits signin / signup, redirect to their role destination
@@ -40,6 +45,10 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
       return;
     }
   }, [user, role, loading, pathname, isAuthPage, isProtectedPage, router]);
+
+  if (isTemporaryAuthBypassEnabled) {
+    return <>{children}</>;
+  }
 
   // While loading credentials on a protected route, show loading state
   if (loading && isProtectedPage) {
