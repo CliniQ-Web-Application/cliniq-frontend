@@ -117,8 +117,10 @@ export function getRoleDestination(role: UserRole | null | undefined): string {
  * Checks whether a user with the given role is allowed to access the specified pathname.
  */
 export function isRouteAllowed(pathname: string, role: UserRole | null): boolean {
+  // Match on the path part only, ignoring query strings (e.g. /check-in?id=...).
+  const path = pathname.split("?")[0] || "/";
   // Public routes accessible without logging in
-  if (pathname === "/" || pathname.startsWith("/auth/")) {
+  if (path === "/" || path.startsWith("/auth/")) {
     return true;
   }
 
@@ -127,23 +129,28 @@ export function isRouteAllowed(pathname: string, role: UserRole | null): boolean
     return false;
   }
 
+  // Check-in works for any signed-in role: patients check themselves in, staff/admins scan it at reception.
+  if (path === "/check-in") {
+    return true;
+  }
+
   // Admin routes: strictly ADMIN only
-  if (pathname === "/admin" || pathname.startsWith("/admin/")) {
+  if (path === "/admin" || path.startsWith("/admin/")) {
     return role === "ADMIN";
   }
 
   // Legacy staff registration is reserved for admins and redirects to the admin portal.
-  if (pathname === "/staff/register" || pathname === "/staff/register/") {
+  if (path === "/staff/register" || path === "/staff/register/") {
     return role === "ADMIN";
   }
 
   // Staff routes: strictly STAFF only
-  if (pathname === "/staff" || pathname.startsWith("/staff/")) {
+  if (path === "/staff" || path.startsWith("/staff/")) {
     return role === "STAFF";
   }
 
   // Patient routes: strictly PATIENT only
-  if (pathname === "/patient" || pathname.startsWith("/patient/") || pathname === "/patientTest") {
+  if (path === "/patient" || path.startsWith("/patient/") || path === "/patientTest") {
     return role === "PATIENT";
   }
 

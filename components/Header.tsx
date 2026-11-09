@@ -52,7 +52,6 @@ export default function Header({ onChanged }: { onChanged?: () => void }) {
     },
   }), [userId]);
 
-  // Reflect the staff member's real availability from their profile.
   useEffect(() => {
     setAvailable(String(profile?.availabilityStatus ?? "").toUpperCase() === "AVAILABLE");
   }, [profile?.availabilityStatus]);

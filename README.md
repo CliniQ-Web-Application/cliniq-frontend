@@ -413,3 +413,8 @@ patients should check this list before starting another booking after an error.
 Run `npm test`, `npm run lint`, and `node node_modules/typescript/bin/tsc --noEmit
 --incremental false` for local checks. No backend files are changed by this
 frontend implementation.
+
+
+## Check-in QR and /check-in
+
+Patients see a "Check-in QR" button on the patient booking page (per BOOKED appointment). The modal fetches the QR PNG from the backend with the caller's bearer token and shows it for reception to scan; the QR encodes a link to `/check-in?id=<appointmentId>`. `/check-in` is a shared page (not role-gated by the proxy): patients see their appointment (via `GET /api/bookings/{id}`) and can check themselves in, while staff/admin scanning it see the appointment (via `GET /api/appointments/{id}`) and can also check the patient in. Anyone signed out is sent to sign in and returned to the link afterwards (`isRouteAllowed` allows `/check-in` for all roles and ignores query strings when matching paths).

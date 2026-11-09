@@ -207,9 +207,7 @@ function StaffPortalInner({ user }: { user: User }) {
           <div>
             <p className="text-sm font-semibold uppercase tracking-widest text-primary">Staff portal</p>
             <h1 className="mt-1 text-3xl font-bold leading-tight">Clinic queue & availability</h1>
-            <p className="mt-1 text-sm text-neutral-600">
-              Live data from the clinic API, scoped to your department where applicable. Booked patients appear in today's list; checking one in adds them to the waiting queue.
-            </p>
+          
           </div>
           <button type="button" onClick={() => void refresh()} disabled={refreshing} className={ghostButtonClass}>
             <span className="inline-flex items-center gap-2">
@@ -228,7 +226,7 @@ function StaffPortalInner({ user }: { user: User }) {
         {actionError && <div role="alert" className="mb-5 rounded-xl border border-error/20 bg-error-background p-4 text-sm text-error">{actionError}</div>}
 
         <div className="grid gap-6 lg:grid-cols-2">
-          {/* ─── Today's appointments ─── */}
+
           <section aria-labelledby="today-heading" className="rounded-2xl border border-primary/15 bg-surface p-5 shadow-sm">
             <div className="mb-4 flex items-center justify-between gap-3">
               <h2 id="today-heading" className="flex items-center gap-2 text-lg font-bold">
@@ -275,7 +273,6 @@ function StaffPortalInner({ user }: { user: User }) {
             </ul>
           </section>
 
-          {/* ─── Waiting queue ─── */}
           <section aria-labelledby="queue-heading" className="rounded-2xl border border-primary/15 bg-surface p-5 shadow-sm">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <h2 id="queue-heading" className="flex items-center gap-2 text-lg font-bold">
@@ -329,7 +326,6 @@ function StaffPortalInner({ user }: { user: User }) {
           </section>
         </div>
 
-        {/* ─── Availability management (doctors) ─── */}
         {isDoctor && (
           <section aria-labelledby="availability-heading" className="mt-6 rounded-2xl border border-primary/15 bg-surface p-5 shadow-sm">
             <h2 id="availability-heading" className="flex items-center gap-2 text-lg font-bold">

@@ -5,6 +5,7 @@ import type { User } from "@supabase/supabase-js";
 import Link from "next/link";
 import { ArrowLeft, CalendarPlus } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import CheckInQr from "@/components/booking/CheckInQr";
 import { supabase } from "@/lib/supabase";
 import {
   availableBookingSlots, bookingBody, BookingRequestError, createBookingApi,
@@ -45,6 +46,11 @@ function Confirmation({ booking }: { booking: BookingConfirmation }) {
       <p className="mt-2 break-all">Appointment ID: {booking.appointmentId}</p>
       <p>{booking.departmentName ?? "Department no longer assigned"} · {booking.doctorName}</p>
       <p>{booking.slotDate} · {booking.startTime.slice(0, 5)} – {booking.endTime.slice(0, 5)} (clinic time)</p>
+      {booking.appointmentStatus === "BOOKED" && (
+        <div className="mt-3">
+          <CheckInQr appointmentId={booking.appointmentId} />
+        </div>
+      )}
     </div>
   );
 }
