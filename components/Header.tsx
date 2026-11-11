@@ -7,6 +7,8 @@ import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { createStaffApi, StaffApiError } from "@/lib/staff";
 
+import NotificationBell from "@/components/Notification/NotificationBell";
+
 type WalkInPatient = {
   patientID: string;
   patientName: string;
@@ -187,6 +189,8 @@ export default function Header({ onChanged }: { onChanged?: () => void }) {
               Walk-in
             </button>
 
+            <NotificationBell />
+
             <button
               type="button"
               onClick={() => signOut()}
@@ -231,6 +235,10 @@ export default function Header({ onChanged }: { onChanged?: () => void }) {
               <UserPlus size={15} aria-hidden="true" />
               Walk-in
             </button>
+
+            <div className="mb-3 flex justify-center">
+              <NotificationBell />
+            </div>
 
             <button
               type="button"
