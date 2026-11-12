@@ -13,7 +13,8 @@ function required(name, { trim = true } = {}) {
 function checkResult(result, action) {
   if (result.error) {
     // Do not print SDK errors or request details that may contain credentials.
-    throw new Error(`${action} failed. Check project permissions, schema, and Auth settings.`);
+    const detail = result.error.code ? ` (${result.error.code})` : "";
+    throw new Error(`${action} failed${detail}. Check that SUPABASE_SERVICE_ROLE_KEY is a real service-role key and that the table/schema exists.`);
   }
   return result.data;
 }
