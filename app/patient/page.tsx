@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ArrowLeft, CalendarPlus, ClipboardList, HeartPulse, QrCode, Clock, LogOut } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import NotificationBell from "@/components/Notification/NotificationBell";
 
 const actions = [
   {
@@ -51,6 +52,9 @@ export default function PatientPortal() {
             Back to home
           </Link>
 
+          <div className="flex items-center gap-4">
+            <NotificationBell />
+
           <button
             type="button"
             onClick={() => signOut()}
@@ -59,6 +63,7 @@ export default function PatientPortal() {
             <LogOut size={16} />
             Sign out
           </button>
+          </div>
         </div>
 
         {/* Page header */}
