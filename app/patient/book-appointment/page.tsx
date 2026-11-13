@@ -6,6 +6,8 @@ import Link from "next/link";
 import { ArrowLeft, CalendarPlus } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
+import { appointmentStatusPresentation } from "@/lib/appointment-status";
+import SessionExpiredAction from "@/components/auth/SessionExpiredAction";
 import {
   availableBookingSlots, bookingBody, BookingRequestError, createBookingApi,
   parseBookingConfirmation, patientProfileBody, slotCapacityLabel,
@@ -39,12 +41,15 @@ export default function BookAppointmentPage() {
 }
 
 function Confirmation({ booking }: { booking: BookingConfirmation }) {
+  const status = appointmentStatusPresentation(booking.appointmentStatus);
   return (
     <div className="rounded-xl border border-primary/20 bg-accent-surface p-4 text-sm">
-      <p className="font-semibold">{booking.appointmentStatus === "BOOKED" ? "Appointment confirmed" : booking.appointmentStatus}</p>
+      <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${status.className}`}>{status.label}</span>
       <p className="mt-2 break-all">Appointment ID: {booking.appointmentId}</p>
       <p>{booking.departmentName ?? "Department no longer assigned"} · {booking.doctorName}</p>
       <p>{booking.slotDate} · {booking.startTime.slice(0, 5)} – {booking.endTime.slice(0, 5)} (clinic time)</p>
+      <p className="mt-2 text-neutral-700">{status.description}</p>
+      <Link href={`/patient/appointments/${encodeURIComponent(booking.appointmentId)}`} className="mt-3 inline-flex min-h-10 items-center font-semibold text-primary underline">View appointment details</Link>
     </div>
   );
 }
@@ -251,7 +256,7 @@ function PatientBooking({ user }: { user: User }) {
         </header>
 
         {profileState === "loading" && <p role="status" className="mb-4">Checking your patient profile...</p>}
-        {profileState === "error" && <div role="alert" className="mb-5"><p>{profileError}</p><button className="min-h-11 text-primary underline" onClick={() => void loadProfile(signal())}>Retry profile check</button></div>}
+        {profileState === "error" && <div role="alert" className="mb-5"><p>{profileError}<SessionExpiredAction message={profileError} returnTo="/patient/book-appointment" /></p><button className="min-h-11 text-primary underline" onClick={() => void loadProfile(signal())}>Retry profile check</button></div>}
         {profileState === "missing" && (
           <form onSubmit={saveProfile} aria-busy={savingProfile} className="mb-6 space-y-4 rounded-xl border border-primary/20 bg-surface p-6">
             <h2 className="text-xl font-semibold">Complete your patient profile</h2>
@@ -267,15 +272,15 @@ function PatientBooking({ user }: { user: User }) {
                 </label>
               ))}
             </fieldset>
-            {profileError && <p role="alert" className="text-error">{profileError}</p>}
+            {profileError && <p role="alert" className="text-error">{profileError}<SessionExpiredAction message={profileError} returnTo="/patient/book-appointment" /></p>}
             <button type="submit" disabled={savingProfile || submitting} className={buttonClass}>{savingProfile ? "Saving profile..." : "Save patient profile"}</button>
             <button type="button" disabled={savingProfile || submitting} onClick={() => void loadProfile(signal())} className="ml-3 min-h-11 text-primary underline">Retry profile check</button>
           </form>
         )}
         {loading && <p role="status" className="mb-4 text-sm">Loading clinic availability...</p>}
-        {availabilityError && <div role="alert" className="mb-5 text-error"><p>{availabilityError}</p><button type="button" disabled={submitting} onClick={() => void loadAvailability(signal())} className="min-h-11 underline">Retry availability</button></div>}
+        {availabilityError && <div role="alert" className="mb-5 text-error"><p>{availabilityError}<SessionExpiredAction message={availabilityError} returnTo="/patient/book-appointment" /></p><button type="button" disabled={submitting} onClick={() => void loadAvailability(signal())} className="min-h-11 underline">Retry availability</button></div>}
         {!loading && !availabilityError && slots.length === 0 && <p role="status" className="mb-5">No appointments can be booked yet. A staff member must add a future open time for an active doctor with a department.</p>}
-        {bookingError && <div role="alert" className="mb-5 rounded-xl border border-error/20 bg-error-background p-4 text-sm text-error"><p>{bookingError}</p>{uncertainSlot && <a href="#my-bookings" className="inline-block min-h-11 pt-3 underline">Check my appointments before booking again</a>}</div>}
+        {bookingError && <div role="alert" className="mb-5 rounded-xl border border-error/20 bg-error-background p-4 text-sm text-error"><p>{bookingError}<SessionExpiredAction message={bookingError} returnTo="/patient/book-appointment" /></p>{uncertainSlot && <a href="#my-bookings" className="inline-block min-h-11 pt-3 underline">Check my appointments before booking again</a>}</div>}
         {success && <section role="status" aria-label="Booking confirmation" className="mb-6"><Confirmation booking={success} /></section>}
 
         <form onSubmit={book} aria-busy={submitting} className="space-y-6 rounded-2xl border border-primary/15 bg-surface p-6 shadow-sm sm:p-8">
@@ -320,7 +325,7 @@ function PatientBooking({ user }: { user: User }) {
           <h2 id="my-bookings-heading" className="text-2xl font-bold">My appointments</h2>
           <p className="text-sm text-neutral-600">These appointments belong to your signed-in account. If a booking response was lost, check here before trying to book again.</p>
           <button type="button" disabled={bookingsLoading || submitting} onClick={() => void checkBookings()} className={buttonClass}>{bookingsLoading ? "Loading appointments..." : "Check / refresh my appointments"}</button>
-          {bookingsError && <p role="alert" className="text-error">{bookingsError}</p>}
+          {bookingsError && <p role="alert" className="text-error">{bookingsError}<SessionExpiredAction message={bookingsError} returnTo="/patient/book-appointment#my-bookings" /></p>}
           {!bookingsLoading && !bookingsError && bookings.length === 0 && <p role="status">No appointments found.</p>}
           {bookings.map((booking) => <Confirmation key={booking.appointmentId} booking={booking} />)}
         </section>

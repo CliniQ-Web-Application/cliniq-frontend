@@ -4,11 +4,13 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { User } from "@supabase/supabase-js";
 import Link from "next/link";
 import {
-  CalendarClock, ClipboardList, ListFilter, Plus, RefreshCw, Trash2, UserRound, Zap,
+  CalendarClock, ClipboardList, ListFilter, Plus, QrCode, RefreshCw, Trash2, UserRound, Zap,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
 import Header from "@/components/Header";
+import CheckInQrScanner from "@/components/staff/CheckInQrScanner";
+import SessionExpiredAction from "@/components/auth/SessionExpiredAction";
 import {
   appointmentTimeValue, createStaffApi, inConsultationQueue, isTodayAppointment, myOpenSlots,
   StaffApiError, todayLocalValue, waitingQueue,
@@ -73,6 +75,7 @@ function StaffPortalInner({ user }: { user: User }) {
   const [refreshing, setRefreshing] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [actionError, setActionError] = useState("");
+  const [scannerOpen, setScannerOpen] = useState(false);
   const [slotForm, setSlotForm] = useState({ slotDate: today, startTime: "09:00", endTime: "15:00", capacity: "10" });
   const [slotSaving, setSlotSaving] = useState(false);
   const [slotError, setSlotError] = useState("");
@@ -147,7 +150,7 @@ function StaffPortalInner({ user }: { user: User }) {
   }
 
   const checkIn = (appointmentId: string) =>
-    runAction(`checkin-${appointmentId}`, () => api(`/appointments/${appointmentId}/check-in`, { method: "POST" }), "Could not check the patient in. Please try again.");
+    runAction(`checkin-${appointmentId}`, () => api(`/appointments/${encodeURIComponent(appointmentId)}/check-in`, { method: "POST" }), "Could not check the patient in. Please try again.");
   const complete = (appointmentId: string) =>
     runAction(`complete-${appointmentId}`, () => api(`/appointments/${appointmentId}/complete`, { method: "POST" }), "Could not complete the consultation. Please try again.");
   const callNext = () =>
@@ -211,21 +214,26 @@ function StaffPortalInner({ user }: { user: User }) {
               Live data from the clinic API, scoped to your department where applicable. Booked patients appear in today's list; checking one in adds them to the waiting queue.
             </p>
           </div>
-          <button type="button" onClick={() => void refresh()} disabled={refreshing} className={ghostButtonClass}>
-            <span className="inline-flex items-center gap-2">
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => setScannerOpen(true)} disabled={Boolean(busyKey)} className={buttonClass}>
+              <span className="inline-flex items-center gap-2"><QrCode size={16} aria-hidden="true" /> Scan patient QR</span>
+            </button>
+            <button type="button" onClick={() => void refresh()} disabled={refreshing} className={ghostButtonClass}>
+              <span className="inline-flex items-center gap-2">
               <RefreshCw size={15} aria-hidden="true" className={refreshing ? "animate-spin" : ""} />
               {refreshing ? "Refreshing..." : "Refresh"}
-            </span>
-          </button>
+              </span>
+            </button>
+          </div>
         </header>
 
         {loading && <p role="status" className="mb-4">Loading clinic data...</p>}
         {error && (
           <div role="alert" className="mb-5 rounded-xl border border-error/20 bg-error-background p-4 text-sm text-error">
-            <p>{error}</p>
+            <p>{error}<SessionExpiredAction message={error} returnTo="/staff" /></p>
           </div>
         )}
-        {actionError && <div role="alert" className="mb-5 rounded-xl border border-error/20 bg-error-background p-4 text-sm text-error">{actionError}</div>}
+        {actionError && <div role="alert" className="mb-5 rounded-xl border border-error/20 bg-error-background p-4 text-sm text-error">{actionError}<SessionExpiredAction message={actionError} returnTo="/staff" /></div>}
 
         <div className="grid gap-6 lg:grid-cols-2">
           {/* ─── Today's appointments ─── */}
@@ -383,6 +391,10 @@ function StaffPortalInner({ user }: { user: User }) {
           <UserRound size={12} aria-hidden="true" /> Appointments and queues are live from the clinic API. Signed in as {profile?.email ?? user.email}. <button type="button" className="underline hover:text-primary" onClick={() => void refreshProfile()}>Reload profile</button>
         </p>
       </main>
+      {scannerOpen && <CheckInQrScanner onClose={() => setScannerOpen(false)} onDetected={(appointmentId) => {
+        setScannerOpen(false);
+        void checkIn(appointmentId);
+      }} />}
     </div>
   );
 }

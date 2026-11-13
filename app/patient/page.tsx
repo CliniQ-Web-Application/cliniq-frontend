@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, CalendarPlus, ClipboardList, HeartPulse, QrCode, Clock, LogOut } from "lucide-react";
+import { ArrowLeft, CalendarPlus, ClipboardList, HeartPulse, QrCode, Clock, LogOut, UserRound, Bell } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
 const actions = [
@@ -21,13 +21,25 @@ const actions = [
     icon: QrCode,
     title: "Check in with QR",
     description: "Scan to confirm your arrival instantly.",
-    href: "#",
+    href: "/patient/check-in",
   },
   {
     icon: Clock,
     title: "Track queue position",
     description: "See where you are in the waiting list.",
-    href: "#",
+    href: "/patient/queue-tracking",
+  },
+  {
+    icon: UserRound,
+    title: "Patient profile",
+    description: "View and update your name, National ID, and phone number.",
+    href: "/patient/profile",
+  },
+  {
+    icon: Bell,
+    title: "Notifications",
+    description: "View appointment confirmations, queue updates, and clinic messages.",
+    href: "/patient/notifications",
   },
 ];
 

@@ -6,6 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { createStaffApi, StaffApiError } from "@/lib/staff";
+import SessionExpiredAction from "@/components/auth/SessionExpiredAction";
 
 type WalkInPatient = {
   patientID: string;
@@ -176,7 +177,7 @@ export default function Header({ onChanged }: { onChanged?: () => void }) {
           <div className="hidden items-center gap-4 md:flex">
             <div className="flex flex-col items-end">
               {availabilitySwitch}
-              {availabilityError && <p role="alert" className="mt-1 text-xs text-error">{availabilityError}</p>}
+              {availabilityError && <p role="alert" className="mt-1 text-xs text-error">{availabilityError}<SessionExpiredAction message={availabilityError} returnTo="/staff" /></p>}
             </div>
 
             <button
@@ -222,7 +223,7 @@ export default function Header({ onChanged }: { onChanged?: () => void }) {
               <span className="text-sm font-medium">Availability</span>
               {availabilitySwitch}
             </div>
-            {availabilityError && <p role="alert" className="mb-3 text-xs text-error">{availabilityError}</p>}
+            {availabilityError && <p role="alert" className="mb-3 text-xs text-error">{availabilityError}<SessionExpiredAction message={availabilityError} returnTo="/staff" /></p>}
 
             <button
               type="button"
@@ -314,8 +315,8 @@ export default function Header({ onChanged }: { onChanged?: () => void }) {
             {filteredPatients.length === 0 && !patientsLoading && !patientsError && (
               <p className="text-xs text-neutral-500">No registered patient matches “{walkInQuery.trim()}”.</p>
             )}
-            {patientsError && <p role="alert" className="text-sm text-error">{patientsError}</p>}
-            {walkInError && <p role="alert" className="text-sm text-error">{walkInError}</p>}
+            {patientsError && <p role="alert" className="text-sm text-error">{patientsError}<SessionExpiredAction message={patientsError} returnTo="/staff" /></p>}
+            {walkInError && <p role="alert" className="text-sm text-error">{walkInError}<SessionExpiredAction message={walkInError} returnTo="/staff" /></p>}
             {walkInDone && <p role="status" className="text-sm font-medium text-success">{walkInDone}</p>}
 
             <button
