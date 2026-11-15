@@ -80,6 +80,8 @@ function StaffPortalInner({ user }: { user: User }) {
   const [slotSaving, setSlotSaving] = useState(false);
   const [slotError, setSlotError] = useState("");
   const [slotDone, setSlotDone] = useState("");
+  const [appointmentSearch, setAppointmentSearch] = useState("");
+  const [appointmentStatusFilter, setAppointmentStatusFilter] = useState("ALL");
   const lifetime = useRef<AbortController | null>(null);
 
   const api = useMemo(() => createStaffApi({
@@ -197,9 +199,23 @@ function StaffPortalInner({ user }: { user: User }) {
     .filter((item) => isTodayAppointment(item, today))
     .filter((item) => !departmentId || item.staff?.department?.departmentId === departmentId)
     .sort((a, b) => appointmentTimeValue(a).localeCompare(appointmentTimeValue(b)));
+  const visibleAppointments = todayAppointments.filter((appointment) => {
+    const query = appointmentSearch.trim().toLocaleLowerCase();
+    const patient = appointment.patient;
+    const matchesSearch = !query || [
+      patientName(appointment), patient?.patientEmail, patient?.phone,
+    ].some((value) => value?.toLocaleLowerCase().includes(query));
+    return matchesSearch && (appointmentStatusFilter === "ALL" || appointment.appointmentStatus === appointmentStatusFilter);
+  });
   const waitingEntries = waitingQueue(queue, departmentId);
   const consultingEntries = inConsultationQueue(queue, departmentId);
   const openSlots = myOpenSlots(slots, myStaffId, today);
+  const staffRoleLabel = String(profile?.staffRole ?? "staff")
+    .toLocaleLowerCase()
+    .replace(/\b\w/g, (letter) => letter.toLocaleUpperCase());
+  const checkedInCount = todayAppointments.filter((appointment) =>
+    ["CHECKEDIN", "WAITING", "INCONSULTATION"].includes(appointment.appointmentStatus),
+  ).length;
 
   return (
     <div className="min-h-screen bg-background">
@@ -233,6 +249,25 @@ function StaffPortalInner({ user }: { user: User }) {
         )}
         {actionError && <div role="alert" className="mb-5 rounded-xl border border-error/20 bg-error-background p-4 text-sm text-error">{actionError}<SessionExpiredAction message={actionError} returnTo="/staff" /></div>}
 
+        <section aria-label={`${staffRoleLabel} dashboard summary`} className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-xl border border-primary/15 bg-surface p-4 shadow-sm">
+            <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Your role</p>
+            <p className="mt-1 text-lg font-bold">{staffRoleLabel}</p>
+          </div>
+          <div className="rounded-xl border border-primary/15 bg-surface p-4 shadow-sm">
+            <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Today's appointments</p>
+            <p className="mt-1 text-2xl font-bold">{loading ? "—" : todayAppointments.length}</p>
+          </div>
+          <div className="rounded-xl border border-primary/15 bg-surface p-4 shadow-sm">
+            <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Checked in today</p>
+            <p className="mt-1 text-2xl font-bold">{loading ? "—" : checkedInCount}</p>
+          </div>
+          <div className="rounded-xl border border-primary/15 bg-surface p-4 shadow-sm">
+            <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Waiting now</p>
+            <p className="mt-1 text-2xl font-bold">{loading ? "—" : waitingEntries.length}</p>
+          </div>
+        </section>
+
         <div className="grid gap-6 lg:grid-cols-2">
 
           <section aria-labelledby="today-heading" className="rounded-2xl border border-primary/15 bg-surface p-5 shadow-sm">
@@ -240,13 +275,35 @@ function StaffPortalInner({ user }: { user: User }) {
               <h2 id="today-heading" className="flex items-center gap-2 text-lg font-bold">
                 <ClipboardList size={18} aria-hidden="true" className="text-primary" /> Today's appointments
               </h2>
-              <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">{todayAppointments.length}</span>
+              <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">{visibleAppointments.length} / {todayAppointments.length}</span>
+            </div>
+            <div className="mb-4 grid gap-3 sm:grid-cols-[1fr_12rem]">
+              <label className="text-xs font-semibold text-neutral-600">
+                Search patients
+                <input
+                  type="search"
+                  value={appointmentSearch}
+                  onChange={(event) => setAppointmentSearch(event.target.value)}
+                  placeholder="Name, email, or phone"
+                  className={inputClass}
+                />
+              </label>
+              <label className="text-xs font-semibold text-neutral-600">
+                Filter by status
+                <select value={appointmentStatusFilter} onChange={(event) => setAppointmentStatusFilter(event.target.value)} className={inputClass}>
+                  <option value="ALL">All statuses</option>
+                  {Object.entries(STATUS_META).map(([status, meta]) => <option key={status} value={status}>{meta.label}</option>)}
+                </select>
+              </label>
             </div>
             {!loading && todayAppointments.length === 0 && (
               <p className="text-sm text-neutral-600">No appointments booked for today. Patients who book will appear here.</p>
             )}
+            {!loading && todayAppointments.length > 0 && visibleAppointments.length === 0 && (
+              <p className="text-sm text-neutral-600">No appointments match your search and status filter.</p>
+            )}
             <ul className="grid gap-2">
-              {todayAppointments.map((appointment) => {
+              {visibleAppointments.map((appointment) => {
                 const busyPrefix = busyKey?.endsWith(appointment.appointmentId);
                 return (
                   <li key={appointment.appointmentId} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/10 bg-background p-3">
