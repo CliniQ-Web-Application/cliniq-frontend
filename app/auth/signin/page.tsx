@@ -74,6 +74,7 @@ function SigninForm() {
                     <p className="mt-2 text-sm text-neutral-600">
                         Enter your credentials to access your portal.
                     </p>
+                    {searchParams.get("reason") === "session_expired" && <p role="status" className="mt-4 rounded-lg border border-primary/15 bg-accent-surface p-3 text-sm text-primary">Your session expired. Sign in to continue where you left off.</p>}
                 </div>
 
                 <form onSubmit={handleLogin} className="space-y-5">

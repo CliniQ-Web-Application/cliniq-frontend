@@ -1,18 +1,31 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
+import { supabase } from "@/lib/supabase";
+import { createStaffApi, StaffApiError } from "@/lib/staff";
+import SessionExpiredAction from "@/components/auth/SessionExpiredAction";
 import type { Department } from "@/types/Department";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 const inputClass = "h-11 w-full rounded-lg border border-primary/25 bg-background px-3 text-sm outline-none transition placeholder:text-neutral-500 focus:border-primary focus:ring-2 focus:ring-primary/20";
 
 
 export default function StaffRegistrationForm() {
-    const { user, role: userRole, session, loading: authLoading } = useAuth();
-    const accessToken = session?.access_token;
+    const { user, role: userRole, loading: authLoading } = useAuth();
+    const userId = user?.id ?? null;
+    const api = useMemo(() => createStaffApi({
+        baseUrl: process.env.NEXT_PUBLIC_API_URL,
+        forbiddenMessage: "Only signed-in administrators can perform this action.",
+        getToken: async () => {
+            const { data, error } = await supabase.auth.getSession();
+            return !error && data.session?.user.id === userId ? data.session.access_token : null;
+        },
+        refreshToken: async () => {
+            const { data, error } = await supabase.auth.refreshSession();
+            return !error && data.session?.user.id === userId ? data.session.access_token : null;
+        },
+    }), [userId]);
     const submitting = useRef(false);
     const [succeeded, setSucceeded] = useState(false);
     const [staffName, setStaffName] = useState("");
@@ -28,30 +41,14 @@ export default function StaffRegistrationForm() {
     const [loadingDepartments, setLoadingDepartments] = useState(true);
 
     useEffect(() => {
-        if (authLoading || !user || userRole !== "ADMIN" || !accessToken) return;
+        if (authLoading || !user || userRole !== "ADMIN") return;
 
         const controller = new AbortController();
         async function loadDepartments() {
             try {
-                if (!API_URL) throw new Error("API URL is not configured.");
-
-                const response = await fetch(
-                    `${API_URL}/api/departments`,
-                    {
-                        headers: {
-                            Authorization: `Bearer ${accessToken}`,
-                        },
-                        signal: controller.signal,
-                    }
-                );
-
-                if (!response.ok) {
-                    throw new Error(
-                        `Could not load departments (${response.status}).`
-                    );
-                }
-
-                const data: Department[] = await response.json();
+                const result = await api("/departments", { signal: controller.signal });
+                if (!Array.isArray(result)) throw new Error("The clinic returned an unexpected departments response.");
+                const data = result as Department[];
                 if (!controller.signal.aborted) setDepartments(data);
             } catch (error) {
                 if (controller.signal.aborted) return;
@@ -68,7 +65,7 @@ export default function StaffRegistrationForm() {
 
         loadDepartments();
         return () => controller.abort();
-    }, [authLoading, user, userRole, accessToken]);
+    }, [authLoading, user, userRole, api]);
 
     async function handleSubmit( e: React.SubmitEvent<HTMLFormElement> ) {
         e.preventDefault();
@@ -76,7 +73,7 @@ export default function StaffRegistrationForm() {
         setSucceeded(false);
         setMessage("");
 
-        if (authLoading || !user || userRole !== "ADMIN" || !accessToken) {
+        if (authLoading || !user || userRole !== "ADMIN") {
             setMessage("Only signed-in administrators can create staff accounts.");
             return;
         }
@@ -105,32 +102,17 @@ export default function StaffRegistrationForm() {
         setLoading(true);
 
         try {
-            if (!API_URL) throw new Error("API URL is not configured.");
-
-            const response = await fetch(
-                `${API_URL}/api/staff/register`,
-                {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        Authorization: `Bearer ${accessToken}`,
-                    },
-                    body: JSON.stringify({
+            await api("/staff/register", {
+                method: "POST",
+                body: JSON.stringify({
                         firstName: staffName.trim(),
                         lastName: staffSurname.trim(),
                         email: email.trim(),
                         departmentId,
                         staffRole: role,
                         password,
-                    }),
-                }
-            );
-
-            const result = await response.json().catch(() => ({}));
-
-            if (!response.ok) {
-                throw new Error( result.message ?? `Registration failed (${response.status}).` );
-            }
+                }),
+            });
 
             setSucceeded(true);
             setMessage("Staff account created successfully. The demo staff list will not display this account.");
@@ -143,7 +125,7 @@ export default function StaffRegistrationForm() {
             setPassword("");
             setConfirmPassword("");
         } catch (error) {
-            setMessage( error instanceof Error ? error.message : "Something went wrong." );
+            setMessage(error instanceof StaffApiError ? error.message : error instanceof Error ? error.message : "Something went wrong.");
         } finally {
             submitting.current = false;
             setLoading(false);
@@ -154,7 +136,7 @@ export default function StaffRegistrationForm() {
         return <p role="status">Verifying administrator access...</p>;
     }
 
-    if (!user || userRole !== "ADMIN" || !accessToken) {
+    if (!user || userRole !== "ADMIN") {
         return <p role="alert" className="rounded-lg border border-error/20 bg-error-background p-4 text-error">Only signed-in administrators can create staff accounts.</p>;
     }
 
@@ -308,7 +290,7 @@ export default function StaffRegistrationForm() {
                     aria-atomic="true"
                     className={message ? `wrap-break-word rounded-lg border px-3 py-2.5 text-sm font-medium ${succeeded ? "border-success/20 bg-success-background text-success" : "border-error/20 bg-error-background text-error"}` : "sr-only"}
                 >
-                    {message}
+                    {message}<SessionExpiredAction message={message} returnTo="/admin/staff/register" />
                 </p>
 
                 <button

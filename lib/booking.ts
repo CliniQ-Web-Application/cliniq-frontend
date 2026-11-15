@@ -138,6 +138,7 @@ export function createBookingApi(options: {
           : "The clinic could not complete this request. Please try again or contact the clinic.";
       throw new BookingRequestError(typeof data?.message === "string" && data.message.trim() ? data.message : fallback, response.status);
     }
+    if (response.status === 204) return null;
     return response.json();
   };
 }
