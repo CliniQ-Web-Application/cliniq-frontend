@@ -84,6 +84,7 @@ test("formats a local calendar date with zero padding instead of UTC conversion"
 
 test("booking payload contains exactly slotId and requires a selection", () => {
   assert.deepEqual(bookingBody("slot-1"), { slotId: "slot-1" });
+  assert.deepEqual(bookingBody("slot-1", "13:45"), { slotId: "slot-1", appointmentTime: "13:45" });
   assert.throws(() => bookingBody("  "), /select an available/);
 });
 

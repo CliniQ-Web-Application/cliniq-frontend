@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, CalendarPlus, CheckCircle2, Clock, LogOut, XCircle } from "lucide-react";
+import { ArrowLeft, CalendarPlus, CheckCircle2, ClipboardList, QrCode, Clock, LogOut, UserRound, Bell, XCircle } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
 type Booking = {
   appointmentId: string;
   appointmentStatus: string;
   slotDate: string;
+  appointmentTime?: string;
   startTime: string;
   endTime: string;
   doctorName: string;
@@ -16,6 +17,45 @@ type Booking = {
 };
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
+
+const actions = [
+  {
+    icon: CalendarPlus,
+    title: "Book appointment",
+    description: "Choose a doctor and clinic time, then confirm your booking.",
+    href: "/patient/book-appointment",
+  },
+  {
+    icon: ClipboardList,
+    title: "View appointments",
+    description: "See your confirmed appointments and booking details.",
+    href: "/patient/book-appointment#my-bookings",
+  },
+  {
+    icon: QrCode,
+    title: "Check in with QR",
+    description: "Scan to confirm your arrival instantly.",
+    href: "/patient/check-in",
+  },
+  {
+    icon: Clock,
+    title: "Track queue position",
+    description: "See where you are in the waiting list.",
+    href: "/patient/queue-tracking",
+  },
+  {
+    icon: UserRound,
+    title: "Patient profile",
+    description: "View and update your name, National ID, and phone number.",
+    href: "/patient/profile",
+  },
+  {
+    icon: Bell,
+    title: "Notifications",
+    description: "View appointment confirmations, queue updates, and clinic messages.",
+    href: "/patient/notifications",
+  },
+];
 
 export default function PatientPortal() {
   const { profile, user, session, signOut } = useAuth();
@@ -78,14 +118,27 @@ export default function PatientPortal() {
           <p className="mt-3 text-neutral-600">Manage appointments, check in, and follow your queue status.</p>
         </header>
 
-        <div className="mt-8 flex flex-wrap gap-3">
-          <Link href="/patient/book-appointment" className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white">
-            <CalendarPlus size={17} /> Book appointment
-          </Link>
-          <Link href="/patient/book-appointment#my-bookings" className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-primary/25 px-4 text-sm font-semibold text-primary">
-            View booking availability
-          </Link>
-        </div>
+        <section className="mt-8 grid gap-4 sm:grid-cols-2" aria-label="Patient actions">
+          {actions.map(({ icon: Icon, title, description, href }) => (
+            <Link
+              key={title}
+              href={href}
+              className="group flex min-h-28 items-center gap-5 rounded-xl border border-primary/20 bg-surface p-6 transition hover:border-primary"
+            >
+              <span className="flex shrink-0 items-center justify-center rounded-lg bg-accent-surface p-3">
+                <Icon aria-hidden="true" className="text-primary" size={24} />
+              </span>
+              <span>
+                <strong className="block text-lg font-semibold text-foreground group-hover:text-primary">
+                  {title}
+                </strong>
+                <span className="mt-0.5 block text-sm text-neutral-600">
+                  {description}
+                </span>
+              </span>
+            </Link>
+          ))}
+        </section>
 
         {message && <p role="status" className="mt-5 rounded-lg border border-primary/20 bg-accent-surface p-3 text-sm">{message}</p>}
 
@@ -104,7 +157,7 @@ export default function PatientPortal() {
                     </div>
                     <span className="rounded-full bg-accent-surface px-2.5 py-1 text-xs font-semibold text-primary">{booking.appointmentStatus}</span>
                   </div>
-                  <p className="mt-4 flex items-center gap-2 text-sm"><Clock size={16} /> {booking.startTime} – {booking.endTime}</p>
+                  <p className="mt-4 flex items-center gap-2 text-sm"><Clock size={16} /> {booking.appointmentTime?.slice(0, 5) ?? `${booking.startTime} – ${booking.endTime}`}</p>
                   <div className="mt-5 flex flex-wrap gap-2">
                     {booking.appointmentStatus === "BOOKED" && (
                       <>
