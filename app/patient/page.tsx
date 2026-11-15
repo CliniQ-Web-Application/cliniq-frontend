@@ -1,21 +1,47 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, CalendarPlus, CheckCircle2, Clock, LogOut, XCircle } from "lucide-react";
+import { ArrowLeft, CalendarPlus, ClipboardList, HeartPulse, QrCode, Clock, LogOut, UserRound, Bell } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
-type Booking = {
-  appointmentId: string;
-  appointmentStatus: string;
-  slotDate: string;
-  startTime: string;
-  endTime: string;
-  doctorName: string;
-  departmentName: string | null;
-};
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL;
+const actions = [
+  {
+    icon: CalendarPlus,
+    title: "Book appointment",
+    description: "Choose a doctor and clinic time, then confirm your booking.",
+    href: "/patient/book-appointment",
+  },
+  {
+    icon: ClipboardList,
+    title: "View appointments",
+    description: "See your confirmed appointments and booking details.",
+    href: "/patient/book-appointment#my-bookings",
+  },
+  {
+    icon: QrCode,
+    title: "Check in with QR",
+    description: "Scan to confirm your arrival instantly.",
+    href: "/patient/check-in",
+  },
+  {
+    icon: Clock,
+    title: "Track queue position",
+    description: "See where you are in the waiting list.",
+    href: "/patient/queue-tracking",
+  },
+  {
+    icon: UserRound,
+    title: "Patient profile",
+    description: "View and update your name, National ID, and phone number.",
+    href: "/patient/profile",
+  },
+  {
+    icon: Bell,
+    title: "Notifications",
+    description: "View appointment confirmations, queue updates, and clinic messages.",
+    href: "/patient/notifications",
+  },
+];
 
 export default function PatientPortal() {
   const { profile, user, session, signOut } = useAuth();

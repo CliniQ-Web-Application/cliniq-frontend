@@ -124,6 +124,7 @@ export function createStaffApi(options: {
   baseUrl: string | undefined;
   getToken: () => Promise<string | null>;
   refreshToken: () => Promise<string | null>;
+  forbiddenMessage?: string;
   fetcher?: typeof fetch;
 }) {
   const fetcher = options.fetcher ?? fetch;
@@ -148,7 +149,8 @@ export function createStaffApi(options: {
     if (!response.ok) {
       const data = await response.json().catch(() => null);
       const fallback = ERROR_FALLBACKS[response.status] ?? "The clinic could not complete this request. Please try again or contact the clinic.";
-      throw new StaffApiError(typeof data?.message === "string" && data.message.trim() ? data.message : fallback, response.status);
+      const message = response.status === 403 && options.forbiddenMessage ? options.forbiddenMessage : fallback;
+      throw new StaffApiError(typeof data?.message === "string" && data.message.trim() ? data.message : message, response.status);
     }
     if (response.status === 204) return null;
     return response.json();
