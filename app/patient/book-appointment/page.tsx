@@ -5,6 +5,7 @@ import type { User } from "@supabase/supabase-js";
 import Link from "next/link";
 import { ArrowLeft, CalendarPlus } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import CheckInQr from "@/components/booking/CheckInQr";
 import { supabase } from "@/lib/supabase";
 import { appointmentStatusPresentation } from "@/lib/appointment-status";
 import SessionExpiredAction from "@/components/auth/SessionExpiredAction";

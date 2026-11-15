@@ -64,7 +64,6 @@ export interface ScheduleSlot {
   staff: StaffRef | null;
 }
 
-// Queue order is booking time, with urgent bookings first (matches the backend).
 export function bookingMoment(appointment: StaffAppointment): string {
   return appointment.bookedAt ?? appointment.checkInTime ?? appointment.createdAt ?? "";
 }
@@ -82,7 +81,6 @@ export function appointmentTimeValue(appointment: StaffAppointment): string {
   return `${appointment.slot?.slotDate ?? "9999-12-31"}T${appointment.slot?.startTime ?? "99:99"}`;
 }
 
-// The queue shows who is actually waiting, most urgent first, then FIFO.
 export function waitingQueue(entries: QueueEntry[], departmentId: string | undefined): QueueEntry[] {
   return entries
     .filter((entry) => entry.appointment?.appointmentStatus === "WAITING")
@@ -144,7 +142,6 @@ export function createStaffApi(options: {
       },
     });
     let response = await send(token);
-    // Only an explicit authentication rejection is retried, never a failed POST transport.
     if (response.status === 401) {
       token = await options.refreshToken();
       if (token) response = await send(token);
