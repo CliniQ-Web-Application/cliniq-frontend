@@ -17,6 +17,15 @@ import {
 
 const inputClass = "mt-2 h-11 w-full rounded-lg border border-primary/25 bg-background px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:opacity-50";
 const buttonClass = "min-h-11 rounded-lg bg-primary px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50";
+function toMinutes(value: string): number {
+  const [hours, minutes] = value.slice(0, 5).split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+function fromMinutes(value: number): string {
+  return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
+}
+
 const messageOf = (cause: unknown, action: string) => {
   if (cause instanceof BookingRequestError) {
     if (cause.status === 403) return "This page is for patient accounts. Sign out and sign in with a patient account.";
@@ -48,7 +57,7 @@ function Confirmation({ booking }: { booking: BookingConfirmation }) {
       <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${status.className}`}>{status.label}</span>
       <p className="mt-2 break-all">Appointment ID: {booking.appointmentId}</p>
       <p>{booking.departmentName ?? "Department no longer assigned"} · {booking.doctorName}</p>
-      <p>{booking.slotDate} · {booking.startTime.slice(0, 5)} – {booking.endTime.slice(0, 5)} (clinic time)</p>
+      <p>{booking.slotDate} · {booking.appointmentTime?.slice(0, 5) ?? `${booking.startTime.slice(0, 5)} – ${booking.endTime.slice(0, 5)}`} (clinic time)</p>
       <p className="mt-2 text-neutral-700">{status.description}</p>
       <Link href={`/patient/appointments/${encodeURIComponent(booking.appointmentId)}`} className="mt-3 inline-flex min-h-10 items-center font-semibold text-primary underline">View appointment details</Link>
     </div>
@@ -61,6 +70,7 @@ function PatientBooking({ user }: { user: User }) {
   const [staffId, setStaffId] = useState("");
   const [date, setDate] = useState("");
   const [slotId, setSlotId] = useState("");
+  const [appointmentTime, setAppointmentTime] = useState("");
   const [profileState, setProfileState] = useState<"loading" | "missing" | "ready" | "error">("loading");
   const [profileError, setProfileError] = useState("");
   const [profileInput, setProfileInput] = useState<PatientProfileInput>(() => {
@@ -181,14 +191,14 @@ function PatientBooking({ user }: { user: User }) {
   async function book(event: React.SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     const signal = lifetime.current?.signal;
-    if (!signal || signal.aborted || inFlight.current || !selectedSlot || controlsDisabled) return;
+    if (!signal || signal.aborted || inFlight.current || !selectedSlot || !appointmentTime || controlsDisabled) return;
     const selectedId = selectedSlot.slotId;
     inFlight.current = true;
     setSubmitting(true);
     setBookingError("");
     setSuccess(null);
     try {
-      const data = await api("/bookings", { method: "POST", body: JSON.stringify(bookingBody(selectedId)), signal });
+      const data = await api("/bookings", { method: "POST", body: JSON.stringify(bookingBody(selectedId, appointmentTime)), signal });
       const confirmation = parseBookingConfirmation(data);
       if (confirmation.appointmentStatus !== "BOOKED" || confirmation.slotId !== selectedId) {
         throw new Error("The booking response could not be verified.");
@@ -196,6 +206,7 @@ function PatientBooking({ user }: { user: User }) {
       if (signal.aborted) return;
       setSuccess(confirmation);
       setSlotId("");
+      setAppointmentTime("");
       setBookings((current) => [confirmation, ...current.filter((item) => item.appointmentId !== confirmation.appointmentId)]);
       await loadAvailability(signal);
     } catch (cause) {
@@ -240,6 +251,11 @@ function PatientBooking({ user }: { user: User }) {
   const dates = Array.from(new Set(doctorSlots.map((slot) => slot.slotDate)));
   const dateSlots = doctorSlots.filter((slot) => slot.slotDate === date);
   const selectedSlot = dateSlots.find((slot) => slot.slotId === slotId);
+  const firstAppointmentMinute = selectedSlot ? Math.ceil(toMinutes(selectedSlot.startTime) / 5) * 5 : 0;
+  const appointmentTimes = selectedSlot ? Array.from(
+    { length: Math.max(0, Math.ceil((toMinutes(selectedSlot.endTime) - firstAppointmentMinute) / 5)) },
+    (_, index) => fromMinutes(firstAppointmentMinute + index * 5),
+  ) : [];
   const controlsDisabled = loading || Boolean(availabilityError) || profileState !== "ready" || submitting || Boolean(uncertainSlot);
   const signal = () => lifetime.current!.signal;
 
@@ -287,27 +303,33 @@ function PatientBooking({ user }: { user: User }) {
         <form onSubmit={book} aria-busy={submitting} className="space-y-6 rounded-2xl border border-primary/15 bg-surface p-6 shadow-sm sm:p-8">
           <fieldset disabled={controlsDisabled} className="grid gap-6 sm:grid-cols-2">
             <label className="block text-sm font-semibold">Department
-              <select required value={departmentId} disabled={controlsDisabled || departments.length === 0} className={inputClass} onChange={(event) => { setDepartmentId(event.target.value); setStaffId(""); setDate(""); setSlotId(""); }}>
+              <select required value={departmentId} disabled={controlsDisabled || departments.length === 0} className={inputClass} onChange={(event) => { setDepartmentId(event.target.value); setStaffId(""); setDate(""); setSlotId(""); setAppointmentTime(""); }}>
                 <option value="">Select a department</option>
                 {departments.map((item) => <option key={item.departmentId} value={item.departmentId}>{item.name}</option>)}
               </select>
             </label>
             <label className="block text-sm font-semibold">Doctor
-              <select required value={staffId} disabled={controlsDisabled || !departmentId || doctors.length === 0} className={inputClass} onChange={(event) => { setStaffId(event.target.value); setDate(""); setSlotId(""); }}>
+              <select required value={staffId} disabled={controlsDisabled || !departmentId || doctors.length === 0} className={inputClass} onChange={(event) => { setStaffId(event.target.value); setDate(""); setSlotId(""); setAppointmentTime(""); }}>
                 <option value="">{departmentId && doctors.length === 0 ? "No doctors with open times" : "Select a doctor"}</option>
                 {doctors.map((doctor) => <option key={doctor.staffId} value={doctor.staffId}>Dr. {doctor.firstName} {doctor.lastName}</option>)}
               </select>
             </label>
             <label className="block text-sm font-semibold">Appointment date
-              <select required value={date} disabled={controlsDisabled || !staffId} className={inputClass} onChange={(event) => { setDate(event.target.value); setSlotId(""); }}>
+              <select required value={date} disabled={controlsDisabled || !staffId} className={inputClass} onChange={(event) => { setDate(event.target.value); setSlotId(""); setAppointmentTime(""); }}>
                 <option value="">Select an available date</option>
                 {dates.map((value) => <option key={value} value={value}>{value}</option>)}
               </select>
             </label>
-            <label className="block text-sm font-semibold">Clinic time
-              <select required value={slotId} disabled={controlsDisabled || !date} className={inputClass} onChange={(event) => setSlotId(event.target.value)}>
+            <label className="block text-sm font-semibold">Availability window
+              <select required value={slotId} disabled={controlsDisabled || !date} className={inputClass} onChange={(event) => { setSlotId(event.target.value); setAppointmentTime(""); }}>
                 <option value="">Select a time</option>
                 {dateSlots.map((slot) => <option key={slot.slotId} value={slot.slotId}>{slot.startTime.slice(0, 5)} – {slot.endTime.slice(0, 5)}{slotCapacityLabel(slot) ? ` · ${slotCapacityLabel(slot)}` : ""}</option>)}
+              </select>
+            </label>
+            <label className="block text-sm font-semibold">Appointment time (5-minute increments)
+              <select required value={appointmentTime} disabled={controlsDisabled || !selectedSlot} className={inputClass} onChange={(event) => setAppointmentTime(event.target.value)}>
+                <option value="">Select an appointment time</option>
+                {appointmentTimes.map((value) => <option key={value} value={value}>{value}</option>)}
               </select>
             </label>
           </fieldset>
@@ -315,10 +337,10 @@ function PatientBooking({ user }: { user: User }) {
           {selectedSlot && <section aria-label="Appointment selection" aria-live="polite" className="rounded-xl bg-background p-4 text-sm">
             <h2 className="font-semibold">Your selection — not booked</h2>
             <p className="mt-2">{selectedSlot.staff?.department?.name} · Dr. {selectedSlot.staff?.firstName} {selectedSlot.staff?.lastName}</p>
-            <p>{selectedSlot.slotDate} · {selectedSlot.startTime.slice(0, 5)} – {selectedSlot.endTime.slice(0, 5)}{slotCapacityLabel(selectedSlot) ? ` · ${slotCapacityLabel(selectedSlot)}` : ""}</p>
+            <p>{selectedSlot.slotDate} · {appointmentTime || "Choose a time"}{slotCapacityLabel(selectedSlot) ? ` · ${slotCapacityLabel(selectedSlot)}` : ""}</p>
             <p className="mt-1 text-xs text-neutral-500">You will be served in the order appointments are booked.</p>
           </section>}
-          <button type="submit" disabled={controlsDisabled || !selectedSlot} className={`${buttonClass} w-full`}>{submitting ? "Booking appointment..." : "Confirm booking"}</button>
+          <button type="submit" disabled={controlsDisabled || !selectedSlot || !appointmentTime} className={`${buttonClass} w-full`}>{submitting ? "Booking appointment..." : "Confirm booking"}</button>
           <button type="button" disabled={submitting || loading || savingProfile} onClick={() => void loadAvailability(signal())} className="min-h-11 text-primary underline disabled:opacity-50">Refresh availability</button>
         </form>
 

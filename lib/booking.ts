@@ -36,6 +36,7 @@ export interface BookingConfirmation {
   appointmentStatus: string;
   slotId: string;
   slotDate: string;
+  appointmentTime?: string;
   startTime: string;
   endTime: string;
   departmentName: string | null;
@@ -76,9 +77,9 @@ export function patientProfileBody(input: PatientProfileInput): PatientProfileIn
   return body;
 }
 
-export function bookingBody(slotId: string): { slotId: string } {
+export function bookingBody(slotId: string, appointmentTime?: string): { slotId: string; appointmentTime?: string } {
   if (!slotId.trim()) throw new Error("Please select an available clinic time.");
-  return { slotId };
+  return appointmentTime ? { slotId, appointmentTime } : { slotId };
 }
 
 export function parseBookingConfirmation(value: unknown): BookingConfirmation {

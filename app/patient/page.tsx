@@ -1,8 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, CalendarPlus, ClipboardList, HeartPulse, QrCode, Clock, LogOut, UserRound, Bell } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { ArrowLeft, CalendarPlus, CheckCircle2, ClipboardList, QrCode, Clock, LogOut, UserRound, Bell, XCircle } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+
+type Booking = {
+  appointmentId: string;
+  appointmentStatus: string;
+  slotDate: string;
+  appointmentTime?: string;
+  startTime: string;
+  endTime: string;
+  doctorName: string;
+  departmentName: string | null;
+};
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 const actions = [
   {
@@ -104,14 +118,27 @@ export default function PatientPortal() {
           <p className="mt-3 text-neutral-600">Manage appointments, check in, and follow your queue status.</p>
         </header>
 
-        <div className="mt-8 flex flex-wrap gap-3">
-          <Link href="/patient/book-appointment" className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white">
-            <CalendarPlus size={17} /> Book appointment
-          </Link>
-          <Link href="/patient/book-appointment#my-bookings" className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-primary/25 px-4 text-sm font-semibold text-primary">
-            View booking availability
-          </Link>
-        </div>
+        <section className="mt-8 grid gap-4 sm:grid-cols-2" aria-label="Patient actions">
+          {actions.map(({ icon: Icon, title, description, href }) => (
+            <Link
+              key={title}
+              href={href}
+              className="group flex min-h-28 items-center gap-5 rounded-xl border border-primary/20 bg-surface p-6 transition hover:border-primary"
+            >
+              <span className="flex shrink-0 items-center justify-center rounded-lg bg-accent-surface p-3">
+                <Icon aria-hidden="true" className="text-primary" size={24} />
+              </span>
+              <span>
+                <strong className="block text-lg font-semibold text-foreground group-hover:text-primary">
+                  {title}
+                </strong>
+                <span className="mt-0.5 block text-sm text-neutral-600">
+                  {description}
+                </span>
+              </span>
+            </Link>
+          ))}
+        </section>
 
         {message && <p role="status" className="mt-5 rounded-lg border border-primary/20 bg-accent-surface p-3 text-sm">{message}</p>}
 
@@ -130,7 +157,7 @@ export default function PatientPortal() {
                     </div>
                     <span className="rounded-full bg-accent-surface px-2.5 py-1 text-xs font-semibold text-primary">{booking.appointmentStatus}</span>
                   </div>
-                  <p className="mt-4 flex items-center gap-2 text-sm"><Clock size={16} /> {booking.startTime} – {booking.endTime}</p>
+                  <p className="mt-4 flex items-center gap-2 text-sm"><Clock size={16} /> {booking.appointmentTime?.slice(0, 5) ?? `${booking.startTime} – ${booking.endTime}`}</p>
                   <div className="mt-5 flex flex-wrap gap-2">
                     {booking.appointmentStatus === "BOOKED" && (
                       <>

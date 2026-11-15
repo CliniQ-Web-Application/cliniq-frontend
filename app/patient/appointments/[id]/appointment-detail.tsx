@@ -14,6 +14,7 @@ type AppointmentDetails = {
   id: string;
   status: string;
   slotDate: string;
+  appointmentTime: string;
   startTime: string;
   endTime: string;
   doctor: string;
@@ -44,6 +45,7 @@ function appointmentDetails(value: unknown, appointmentId: string): AppointmentD
     id: asText(data.appointmentId) || appointmentId,
     status: asText(data.appointmentStatus ?? data.status) || "UNKNOWN",
     slotDate: asText(data.slotDate ?? slot.slotDate),
+    appointmentTime: asText(data.appointmentTime),
     startTime: asText(data.startTime ?? slot.startTime),
     endTime: asText(data.endTime ?? slot.endTime),
     doctor: asText(data.doctorName) || (fullName ? `Dr. ${fullName}` : "Doctor details unavailable"),
@@ -139,7 +141,7 @@ function AppointmentDetailContent({ user, appointmentId }: { user: User; appoint
         {status && <p className="border-b border-primary/10 py-4 text-sm text-neutral-700">{status.description}</p>}
         <section aria-label="Appointment schedule" className="grid gap-5 border-b border-primary/10 py-5 sm:grid-cols-2">
           <div className="flex gap-3"><CalendarDays className="mt-0.5 shrink-0 text-primary" size={19} aria-hidden="true" /><div><p className="text-sm text-neutral-500">Date</p><p className="mt-1 font-semibold">{details.slotDate || "Not available"}</p></div></div>
-          <div className="flex gap-3"><Clock3 className="mt-0.5 shrink-0 text-primary" size={19} aria-hidden="true" /><div><p className="text-sm text-neutral-500">Appointment time</p><p className="mt-1 font-semibold">{details.startTime ? details.startTime.slice(0, 5) : "—"}{details.endTime ? ` – ${details.endTime.slice(0, 5)}` : ""} <span className="text-xs font-normal text-neutral-500">(clinic time)</span></p></div></div>
+          <div className="flex gap-3"><Clock3 className="mt-0.5 shrink-0 text-primary" size={19} aria-hidden="true" /><div><p className="text-sm text-neutral-500">Appointment time</p><p className="mt-1 font-semibold">{details.appointmentTime ? details.appointmentTime.slice(0, 5) : details.startTime ? `${details.startTime.slice(0, 5)} – ${details.endTime.slice(0, 5)}` : "—"} <span className="text-xs font-normal text-neutral-500">(clinic time)</span></p></div></div>
           <div className="flex gap-3"><Stethoscope className="mt-0.5 shrink-0 text-primary" size={19} aria-hidden="true" /><div><p className="text-sm text-neutral-500">Doctor</p><p className="mt-1 font-semibold">{details.doctor}</p></div></div>
           <div><p className="text-sm text-neutral-500">Department</p><p className="mt-1 font-semibold">{details.department}</p></div>
         </section>

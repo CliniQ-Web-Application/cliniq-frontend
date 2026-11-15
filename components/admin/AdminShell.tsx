@@ -45,7 +45,7 @@ type AuditEntry = {
   action: string;
   reason: string | null;
   entityName: string;
-  entityId: number;
+  entityId: string;
   createdAt: string;
   staff: Pick<AdminStaff, "firstName" | "lastName"> | null;
 };
