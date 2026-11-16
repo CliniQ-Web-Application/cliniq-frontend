@@ -20,9 +20,6 @@ export default function CheckInQr({ appointmentId }: { appointmentId: string }) 
     if (!open) return;
     const controller = new AbortController();
     let objectUrl: string | null = null;
-    setLoading(true);
-    setError("");
-    setSrc(null);
     (async () => {
       try {
         const { data, error: sessionError } = await supabase.auth.getSession();
@@ -62,7 +59,12 @@ export default function CheckInQr({ appointmentId }: { appointmentId: string }) 
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          setSrc(null);
+          setError("");
+          setLoading(true);
+          setOpen(true);
+        }}
         className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-primary/25 px-3 text-xs font-semibold text-primary transition hover:bg-accent-surface"
       >
         <QrCode size={14} aria-hidden="true" />

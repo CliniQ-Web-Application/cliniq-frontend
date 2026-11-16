@@ -78,9 +78,9 @@ function PatientCheckIn({ user }: { user: User }) {
   const selected = bookings.find((booking) => booking.appointmentId === selectedId);
   useEffect(() => {
     let cancelled = false;
-    setQrImage("");
+    queueMicrotask(() => { if (!cancelled) setQrImage(""); });
     if (!selected || selected.appointmentStatus.toUpperCase() !== "BOOKED") return () => { cancelled = true; };
-    setQrLoading(true);
+    queueMicrotask(() => { if (!cancelled) setQrLoading(true); });
     void QRCode.toDataURL(qrPayload(selected.appointmentId), { errorCorrectionLevel: "M", margin: 2, width: 280 })
       .then((image) => { if (!cancelled) setQrImage(image); })
       .catch(() => { if (!cancelled) setError("Could not prepare your check-in QR code. Please select the appointment again."); })

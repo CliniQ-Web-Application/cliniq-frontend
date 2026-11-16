@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { LogOut, Menu, Search, UserPlus, X } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/context/AuthContext";
@@ -24,7 +24,7 @@ const fieldClass =
 export default function Header({ onChanged }: { onChanged?: () => void }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [walkInFormOpen, setWalkInFormOpen] = useState(false);
-  const [available, setAvailable] = useState(false);
+  const [availabilityOverride, setAvailabilityOverride] = useState<boolean | null>(null);
   const [availabilitySaving, setAvailabilitySaving] = useState(false);
   const [availabilityError, setAvailabilityError] = useState("");
   const [walkInQuery, setWalkInQuery] = useState("");
@@ -55,14 +55,13 @@ export default function Header({ onChanged }: { onChanged?: () => void }) {
     },
   }), [userId]);
 
-  useEffect(() => {
-    setAvailable(String(profile?.availabilityStatus ?? "").toUpperCase() === "AVAILABLE");
-  }, [profile?.availabilityStatus]);
+  // Derive from the profile; the override only holds an optimistic update.
+  const available = availabilityOverride ?? (String(profile?.availabilityStatus ?? "").toUpperCase() === "AVAILABLE");
 
   async function handleAvailability(next: boolean) {
     if (availabilitySaving) return;
-    const previous = available;
-    setAvailable(next);
+    const previous = availabilityOverride;
+    setAvailabilityOverride(next);
     setAvailabilitySaving(true);
     setAvailabilityError("");
     try {
@@ -72,7 +71,7 @@ export default function Header({ onChanged }: { onChanged?: () => void }) {
       });
       onChanged?.();
     } catch (cause) {
-      setAvailable(previous);
+      setAvailabilityOverride(previous);
       setAvailabilityError(cause instanceof StaffApiError ? cause.message : "Could not update your availability.");
     } finally {
       setAvailabilitySaving(false);
@@ -282,7 +281,7 @@ export default function Header({ onChanged }: { onChanged?: () => void }) {
               </button>
             </div>
             <p className="text-sm text-neutral-600">
-              Select a registered patient to add them to your department's waiting queue immediately.
+              Select a registered patient to add them to your department&apos;s waiting queue immediately.
             </p>
 
             <label htmlFor="patient-search" className="block text-sm font-semibold">

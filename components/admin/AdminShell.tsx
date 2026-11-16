@@ -177,60 +177,6 @@ function PageHeading({ eyebrow, title, description, action }: { eyebrow: string;
   );
 }
 
-function LegacyAnalyticsPage() {
-  const [range, setRange] = useState("1 Oct – 7 Oct");
-  return (
-    <>
-      <PageHeading
-        eyebrow="Hospital overview"
-        title="Analytics"
-        description="Track waiting times, appointments and attendance across Nyangabgwe Referral Hospital."
-        action={<button type="button" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-hover"><Download size={16} /> Generate report</button>}
-      />
-      <div className="mt-8 grid gap-3 rounded-xl border border-primary/15 bg-surface p-3 shadow-sm sm:grid-cols-3">
-        <label className="flex items-center gap-2 rounded-lg border border-primary/20 bg-background px-3 text-sm font-medium"><Clock3 size={16} className="text-primary" /><span className="sr-only">Date range</span><select value={range} onChange={(event) => setRange(event.target.value)} className="h-10 w-full bg-transparent outline-none"><option>1 Oct – 7 Oct</option><option>8 Oct – 14 Oct</option><option>1 Sep – 30 Sep</option></select></label>
-        <label className="flex items-center gap-2 rounded-lg border border-primary/20 bg-background px-3 text-sm font-medium"><Filter size={16} className="text-primary" /><span className="sr-only">Department</span><select className="h-10 w-full bg-transparent outline-none"><option>All departments</option><option>General practice</option><option>Paediatrics</option><option>Dental</option></select></label>
-        <label className="flex items-center gap-2 rounded-lg border border-primary/20 bg-background px-3 text-sm font-medium"><Stethoscope size={16} className="text-primary" /><span className="sr-only">Doctor</span><select className="h-10 w-full bg-transparent outline-none"><option>All doctors</option><option>Dr. Molefe</option><option>Dr. Kgosi</option></select></label>
-      </div>
-      <section className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Key metrics">
-        {[
-          ["28 min", "Average waiting time", "↓ 6% from last period", Clock3],
-          ["214", "Appointments", "↑ 12% from last period", FileText],
-          ["82%", "Completion rate", "175 completed visits", Check],
-          ["9%", "No-show rate", "19 missed appointments", AlertTriangle],
-        ].map(([value, label, trend, Icon]) => (
-          <article key={label as string} className="rounded-xl border border-primary/15 bg-surface p-5 shadow-sm">
-            <div className="flex items-center justify-between"><span className="rounded-lg bg-accent-surface p-2.5 text-primary"><Icon size={19} /></span><span className="text-xs font-semibold text-success">{trend as string}</span></div>
-            <p className="mt-5 text-3xl font-bold">{value as string}</p>
-            <p className="mt-1 text-sm font-medium text-neutral-600">{label as string}</p>
-          </article>
-        ))}
-      </section>
-      <section className="mt-5 grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
-        <article className="rounded-xl border border-primary/15 bg-surface p-5 shadow-sm">
-          <div className="flex items-center justify-between"><h2 className="font-bold">Average wait by department</h2><span className="text-xs text-neutral-500">{range}</span></div>
-          <div className="mt-6 space-y-5">
-            {[["General", 34, "w-[86%]"], ["Paediatrics", 26, "w-[67%]"], ["Dental", 19, "w-[49%]"], ["Eye clinic", 23, "w-[59%]"]].map(([name, minutes, width]) => (
-              <div key={name as string} className="grid grid-cols-[90px_1fr_48px] items-center gap-3 text-sm"><span className="font-medium">{name as string}</span><div className="h-3 overflow-hidden rounded-full bg-background"><div className={cx("h-full rounded-full bg-primary", width as string)} /></div><span className="text-right font-semibold">{minutes as number} min</span></div>
-            ))}
-          </div>
-        </article>
-        <article className="rounded-xl border border-primary/15 bg-surface p-5 shadow-sm">
-          <h2 className="font-bold">Peak arrival hours</h2>
-          <div className="mt-6 flex h-32 items-end justify-between gap-2 border-b border-primary/15 px-2">
-            {[42, 22, 62, 44, 87, 56, 28].map((height, index) => <div key={index} className="flex h-full flex-1 flex-col items-center justify-end gap-2"><div className="w-full max-w-10 rounded-t-md bg-primary" style={{ height: `${height}%` }} /><span className="text-xs text-neutral-500">{index + 8}</span></div>)}
-          </div>
-          <p className="mt-4 text-sm text-neutral-500">Most arrivals are recorded between 11:00 and 13:00.</p>
-        </article>
-      </section>
-      <section className="mt-5 rounded-xl border border-primary/15 bg-surface p-5 shadow-sm">
-        <h2 className="font-bold">Appointment outcomes</h2>
-        <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[520px] text-left text-sm"><thead className="border-b border-primary/15 text-neutral-500"><tr><th className="px-3 py-3 font-semibold">Status</th><th className="px-3 py-3 font-semibold">Count</th><th className="px-3 py-3 font-semibold">Share</th><th className="px-3 py-3 font-semibold">Trend</th></tr></thead><tbody>{[["Completed", "175", "82%", "↑ 4%"], ["Cancelled", "20", "9%", "↓ 2%"], ["No-show", "19", "9%", "↓ 1%"]].map(([status, count, share, trend]) => <tr key={status} className="border-b border-primary/10 last:border-0"><td className="px-3 py-3 font-semibold">{status}</td><td className="px-3 py-3">{count}</td><td className="px-3 py-3">{share}</td><td className="px-3 py-3 text-success">{trend}</td></tr>)}</tbody></table></div>
-      </section>
-    </>
-  );
-}
-
 function AnalyticsPage() {
   const { user, role, loading: authLoading } = useAuth();
   const today = new Date();
@@ -282,7 +228,7 @@ function AnalyticsPage() {
 
   useEffect(() => {
     if (authLoading || !user || role !== "ADMIN") return;
-    void loadAnalytics();
+    queueMicrotask(() => { void loadAnalytics(); });
   }, [authLoading, loadAnalytics, role, user]);
 
   function exportReport() {
@@ -390,7 +336,7 @@ function QueuePage() {
 
   useEffect(() => {
     if (authLoading || !user || role !== "ADMIN") return;
-    void loadQueue();
+    queueMicrotask(() => { void loadQueue(); });
     const interval = window.setInterval(() => void loadQueue(true), 15000);
     return () => window.clearInterval(interval);
   }, [authLoading, loadQueue, role, user]);
@@ -444,11 +390,9 @@ function StaffPage() {
   const [staff, setStaff] = useState<AdminStaff[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [selectedId, setSelectedId] = useState("");
-  const [selectedRole, setSelectedRole] = useState("");
-  const [selectedDepartmentId, setSelectedDepartmentId] = useState("");
+  const [staffForm, setStaffForm] = useState<{ staffId: string; role: string; departmentId: string } | null>(null);
   const [saved, setSaved] = useState("");
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const api = useMemo(() => createStaffApi({
@@ -470,7 +414,6 @@ function StaffPage() {
   const loadStaff = useCallback(async (quiet = false) => {
     if (!user || role !== "ADMIN") return;
     if (!quiet) setLoading(true);
-    setRefreshing(true);
     setError("");
     try {
       const [staffData, departmentData] = await Promise.all([api("/staff"), api("/departments")]);
@@ -482,20 +425,20 @@ function StaffPage() {
       setError(cause instanceof StaffApiError ? cause.message : "Could not load staff accounts. Please try again.");
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   }, [api, role, user]);
 
   useEffect(() => {
     if (authLoading || !user || role !== "ADMIN") return;
-    void loadStaff();
+    queueMicrotask(() => { void loadStaff(); });
   }, [authLoading, loadStaff, role, user]);
 
   const selected = staff.find((member) => member.staffId === selectedId) ?? null;
-  useEffect(() => {
-    setSelectedRole(selected?.staffRole ?? "");
-    setSelectedDepartmentId(selected?.department?.departmentId ?? "");
-  }, [selected]);
+  // Form values follow the selected row, unless the user is editing them.
+  const selectedRole = staffForm?.staffId === selectedId ? staffForm.role : (selected?.staffRole ?? "");
+  const selectedDepartmentId = staffForm?.staffId === selectedId
+    ? staffForm.departmentId
+    : (selected?.department?.departmentId ?? "");
 
   const visibleStaff = staff.filter((member) => `${member.firstName} ${member.lastName} ${member.staffRole} ${member.department?.name ?? ""}`.toLowerCase().includes(search.toLowerCase()));
 
@@ -552,7 +495,7 @@ function StaffPage() {
       {saved && <p role="status" className="mt-6 rounded-xl border border-success/20 bg-success-background p-4 text-sm font-semibold text-success">{saved}</p>}
       <div className="mt-8 grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
         <section className="rounded-xl border border-primary/15 bg-surface p-5 shadow-sm"><div className="relative"><Search size={17} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name, role or department" className="h-11 w-full rounded-lg border border-primary/25 bg-background pl-10 pr-3 text-sm outline-none focus:border-primary" /></div>{loading ? <p role="status" className="mt-6 text-sm text-neutral-500">Loading staff accounts...</p> : visibleStaff.length === 0 ? <p className="mt-6 rounded-lg bg-background p-4 text-sm text-neutral-600">No staff accounts match this search.</p> : <div className="mt-5 overflow-x-auto"><table className="w-full min-w-[560px] text-left text-sm"><thead className="border-b border-primary/15 text-neutral-500"><tr><th className="px-3 py-3">Staff member</th><th className="px-3 py-3">Role</th><th className="px-3 py-3">Department</th><th className="px-3 py-3">Status</th></tr></thead><tbody>{visibleStaff.map((member) => { const name = `${member.firstName} ${member.lastName}`.trim(); return <tr key={member.staffId} onClick={() => { setSelectedId(member.staffId); setSaved(""); }} className={cx("cursor-pointer border-b border-primary/10 last:border-0 hover:bg-background", selectedId === member.staffId && "bg-accent-surface/50")}><td className="px-3 py-4"><span className="inline-flex items-center gap-2 font-semibold"><span className="flex size-8 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">{`${member.firstName[0] ?? ""}${member.lastName[0] ?? ""}`}</span>{name}</span></td><td className="px-3 py-4">{member.staffRole}</td><td className="px-3 py-4">{member.department?.name ?? "Unassigned"}</td><td className="px-3 py-4"><StatusBadge active={Boolean(member.active)}>{member.active ? "Active" : "Deactivated"}</StatusBadge></td></tr>; })}</tbody></table></div>}</section>
-        <section className="rounded-xl border border-primary/15 bg-surface p-5 shadow-sm">{selected ? <><div className="flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.12em] text-primary">Edit profile</p><h2 className="mt-1 text-lg font-bold">{selected.firstName} {selected.lastName}</h2><p className="text-sm text-neutral-500">{selected.email}</p></div><Pencil size={18} className="text-neutral-500" /></div><div className="mt-6 space-y-4"><label className="block text-sm font-semibold">Role<select value={selectedRole} onChange={(event) => setSelectedRole(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-primary/25 bg-background px-3 font-normal"><option value="ADMIN">Admin</option><option value="DOCTOR">Doctor</option><option value="NURSE">Nurse</option><option value="RECEPTIONIST">Reception</option></select></label><label className="block text-sm font-semibold">Department<select value={selectedDepartmentId} onChange={(event) => setSelectedDepartmentId(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-primary/25 bg-background px-3 font-normal"><option value="">Select department</option>{departments.map((department) => <option key={department.departmentId} value={department.departmentId}>{department.name}</option>)}</select></label><div><p className="text-sm font-semibold">Weekly schedule</p><p className="mt-2 text-sm text-neutral-500">Schedule management will be connected when the staff schedule API is available.</p></div></div><div className="mt-7 flex gap-3"><button type="button" disabled={busy} onClick={() => void toggleActive()} className="min-h-10 flex-1 rounded-lg border border-error px-3 text-sm font-semibold text-error hover:bg-error-background disabled:opacity-50">{selected.active ? "Deactivate" : "Activate"}</button><button type="button" disabled={busy} onClick={() => void saveSelected()} className="min-h-10 flex-1 rounded-lg bg-primary px-3 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-50">{busy ? "Saving..." : "Save changes"}</button></div></> : <p className="text-sm text-neutral-600">Select a staff account to edit it.</p>}</section>
+        <section className="rounded-xl border border-primary/15 bg-surface p-5 shadow-sm">{selected ? <><div className="flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.12em] text-primary">Edit profile</p><h2 className="mt-1 text-lg font-bold">{selected.firstName} {selected.lastName}</h2><p className="text-sm text-neutral-500">{selected.email}</p></div><Pencil size={18} className="text-neutral-500" /></div><div className="mt-6 space-y-4"><label className="block text-sm font-semibold">Role<select value={selectedRole} onChange={(event) => setStaffForm({ staffId: selectedId, role: event.target.value, departmentId: selectedDepartmentId })} className="mt-1.5 h-11 w-full rounded-lg border border-primary/25 bg-background px-3 font-normal"><option value="ADMIN">Admin</option><option value="DOCTOR">Doctor</option><option value="NURSE">Nurse</option><option value="RECEPTIONIST">Reception</option></select></label><label className="block text-sm font-semibold">Department<select value={selectedDepartmentId} onChange={(event) => setStaffForm({ staffId: selectedId, role: selectedRole, departmentId: event.target.value })} className="mt-1.5 h-11 w-full rounded-lg border border-primary/25 bg-background px-3 font-normal"><option value="">Select department</option>{departments.map((department) => <option key={department.departmentId} value={department.departmentId}>{department.name}</option>)}</select></label><div><p className="text-sm font-semibold">Weekly schedule</p><p className="mt-2 text-sm text-neutral-500">Schedule management will be connected when the staff schedule API is available.</p></div></div><div className="mt-7 flex gap-3"><button type="button" disabled={busy} onClick={() => void toggleActive()} className="min-h-10 flex-1 rounded-lg border border-error px-3 text-sm font-semibold text-error hover:bg-error-background disabled:opacity-50">{selected.active ? "Deactivate" : "Activate"}</button><button type="button" disabled={busy} onClick={() => void saveSelected()} className="min-h-10 flex-1 rounded-lg bg-primary px-3 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-50">{busy ? "Saving..." : "Save changes"}</button></div></> : <p className="text-sm text-neutral-600">Select a staff account to edit it.</p>}</section>
       </div>
     </>
   );
@@ -562,8 +505,7 @@ function DepartmentsPage() {
   const { user, role, loading: authLoading } = useAuth();
   const [departments, setDepartments] = useState<AdminDepartment[]>([]);
   const [selectedId, setSelectedId] = useState("");
-  const [name, setName] = useState("");
-  const [operatingHours, setOperatingHours] = useState("");
+  const [departmentForm, setDepartmentForm] = useState<{ id: string; name: string; operatingHours: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -602,14 +544,15 @@ function DepartmentsPage() {
 
   useEffect(() => {
     if (authLoading || !user || role !== "ADMIN") return;
-    void loadDepartments();
+    queueMicrotask(() => { void loadDepartments(); });
   }, [authLoading, loadDepartments, role, user]);
 
   const selected = departments.find((item) => item.departmentId === selectedId) ?? null;
-  useEffect(() => {
-    setName(selected?.name ?? "");
-    setOperatingHours(selected?.operatingHours ?? "");
-  }, [selected]);
+  // Form values follow the selected row, unless the user is editing them.
+  const name = departmentForm?.id === selectedId ? departmentForm.name : (selected?.name ?? "");
+  const operatingHours = departmentForm?.id === selectedId
+    ? departmentForm.operatingHours
+    : (selected?.operatingHours ?? "");
 
   async function saveDepartment() {
     if (!name.trim() || !operatingHours.trim() || busy) {
@@ -654,12 +597,12 @@ function DepartmentsPage() {
 
   return (
     <>
-      <PageHeading eyebrow="Configuration" title="Departments" description="Manage hospital services and operating hours. Staff assignments are managed from staff accounts." action={<button type="button" onClick={() => { setSelectedId(""); setName(""); setOperatingHours(""); setSaved(""); }} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white hover:bg-primary-hover"><Plus size={16} /> Add department</button>} />
+      <PageHeading eyebrow="Configuration" title="Departments" description="Manage hospital services and operating hours. Staff assignments are managed from staff accounts." action={<button type="button" onClick={() => { setSelectedId(""); setDepartmentForm(null); setSaved(""); }} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white hover:bg-primary-hover"><Plus size={16} /> Add department</button>} />
       {error && <div role="alert" className="mt-6 rounded-xl border border-error/20 bg-error-background p-4 text-sm text-error"><p>{error}</p><button type="button" onClick={() => void loadDepartments()} className="mt-3 rounded-lg border border-error/30 px-3 py-2 font-semibold">Retry</button></div>}
       {saved && <p role="status" className="mt-6 rounded-xl border border-success/20 bg-success-background p-4 text-sm font-semibold text-success">{saved}</p>}
       <div className="mt-8 grid gap-5 xl:grid-cols-[1fr_0.9fr]">
         <section className="space-y-3">{loading ? <p role="status" className="rounded-xl border border-primary/15 bg-surface p-5 text-sm text-neutral-500">Loading departments...</p> : departments.length === 0 ? <p className="rounded-xl border border-primary/15 bg-surface p-5 text-sm text-neutral-600">No departments have been created.</p> : departments.map((item) => <button type="button" key={item.departmentId} onClick={() => { setSelectedId(item.departmentId); setSaved(""); }} className={cx("flex w-full items-center justify-between rounded-xl border p-4 text-left transition", selectedId === item.departmentId ? "border-primary bg-accent-surface/60 shadow-sm" : "border-primary/15 bg-surface hover:border-primary/35")}><div><p className="font-bold">{item.name}</p><p className="mt-1 text-sm text-neutral-600">{item.operatingHours}</p></div><LayoutDashboard size={19} className="text-neutral-500" /></button>)}</section>
-        <section className="rounded-xl border border-primary/15 bg-surface p-5 shadow-sm"><div className="flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.12em] text-primary">{selected ? "Edit department" : "New department"}</p><h2 className="mt-1 text-lg font-bold">{selected?.name ?? "Create department"}</h2></div><LayoutDashboard size={19} className="text-neutral-500" /></div><div className="mt-6 space-y-4"><label className="block text-sm font-semibold">Department name<input value={name} onChange={(event) => setName(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-primary/25 bg-background px-3 font-normal" /></label><label className="block text-sm font-semibold">Operating hours<input value={operatingHours} onChange={(event) => setOperatingHours(event.target.value)} placeholder="07:30 to 16:30" className="mt-1.5 h-11 w-full rounded-lg border border-primary/25 bg-background px-3 font-normal" /></label></div><div className="mt-7 flex gap-3"><button type="button" disabled={!selected || busy} onClick={() => void deleteDepartment()} className="min-h-10 rounded-lg border border-error px-4 text-sm font-semibold text-error hover:bg-error-background disabled:opacity-50">Delete</button><button type="button" disabled={busy} onClick={() => void saveDepartment()} className="min-h-10 flex-1 rounded-lg bg-primary px-4 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-50">{busy ? "Saving..." : selected ? "Save changes" : "Create department"}</button></div></section>
+        <section className="rounded-xl border border-primary/15 bg-surface p-5 shadow-sm"><div className="flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.12em] text-primary">{selected ? "Edit department" : "New department"}</p><h2 className="mt-1 text-lg font-bold">{selected?.name ?? "Create department"}</h2></div><LayoutDashboard size={19} className="text-neutral-500" /></div><div className="mt-6 space-y-4"><label className="block text-sm font-semibold">Department name<input value={name} onChange={(event) => setDepartmentForm({ id: selectedId, name: event.target.value, operatingHours })} className="mt-1.5 h-11 w-full rounded-lg border border-primary/25 bg-background px-3 font-normal" /></label><label className="block text-sm font-semibold">Operating hours<input value={operatingHours} onChange={(event) => setDepartmentForm({ id: selectedId, name, operatingHours: event.target.value })} placeholder="07:30 to 16:30" className="mt-1.5 h-11 w-full rounded-lg border border-primary/25 bg-background px-3 font-normal" /></label></div><div className="mt-7 flex gap-3"><button type="button" disabled={!selected || busy} onClick={() => void deleteDepartment()} className="min-h-10 rounded-lg border border-error px-4 text-sm font-semibold text-error hover:bg-error-background disabled:opacity-50">Delete</button><button type="button" disabled={busy} onClick={() => void saveDepartment()} className="min-h-10 flex-1 rounded-lg bg-primary px-4 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-50">{busy ? "Saving..." : selected ? "Save changes" : "Create department"}</button></div></section>
       </div>
     </>
   );
@@ -706,7 +649,7 @@ function AuditPage() {
 
   useEffect(() => {
     if (authLoading || !user || role !== "ADMIN") return;
-    void loadAudit();
+    queueMicrotask(() => { void loadAudit(); });
   }, [authLoading, loadAudit, role, user]);
 
   if (authLoading) return <p role="status" className="mt-8 rounded-xl border border-primary/15 bg-surface p-5">Verifying administrator access...</p>;
