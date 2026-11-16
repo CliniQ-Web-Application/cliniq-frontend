@@ -102,7 +102,11 @@ function PatientProfileManager({ user }: { user: User }) {
     setError("");
     setNotice("");
     try {
-      const result = parseProfile(await api("/patients/me", { method: "POST", body: JSON.stringify(body), signal }));
+      const result = parseProfile(await api("/patients/me", {
+        method: missing ? "POST" : "PUT",
+        body: JSON.stringify(body),
+        signal,
+      }));
       if (signal.aborted) return;
       setProfileData(result);
       setValues({ patientName: result.patientName, patientSurname: result.patientSurname, nationalID: result.nationalID, phone: result.phone });
@@ -150,9 +154,9 @@ function PatientProfileManager({ user }: { user: User }) {
         <p className="text-sm text-neutral-600">Update your name, National ID, and phone number. Account email is managed by your sign-in account.</p>
         <fieldset disabled={saving} className="grid gap-4 sm:grid-cols-2">
           {([ ["patientName", "First name", "given-name"], ["patientSurname", "Surname", "family-name"], ["nationalID", "National ID (Omang)", "off"], ["phone", "Phone number", "tel"] ] as const).map(([field, label, autoComplete]) => (
-            <label key={field} className="text-sm font-semibold">{label}
-              <input required type={field === "phone" ? "tel" : "text"} autoComplete={autoComplete} value={values[field]} className={inputClass} onChange={(event) => setValues((current) => ({ ...current, [field]: event.target.value }))} />
-            </label>
+              <label key={field} className="text-sm font-semibold">{label}
+                <input required type={field === "phone" ? "tel" : "text"} autoComplete={autoComplete} value={values[field]} className={inputClass} onChange={(event) => setValues((current) => ({ ...current, [field]: event.target.value }))} />
+              </label>
           ))}
         </fieldset>
         <div className="flex flex-wrap gap-3">

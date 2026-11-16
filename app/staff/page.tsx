@@ -12,8 +12,8 @@ import Header from "@/components/Header";
 import CheckInQrScanner from "@/components/staff/CheckInQrScanner";
 import SessionExpiredAction from "@/components/auth/SessionExpiredAction";
 import {
-  appointmentTimeValue, createStaffApi, inConsultationQueue, isTodayAppointment, myOpenSlots,
-  StaffApiError, todayLocalValue, waitingQueue,
+  bookingMoment, createStaffApi, inConsultationQueue, isTodayAppointment, mapDepartmentQueueEntry,
+  mapStaffAppointment, myOpenSlots, StaffApiError, todayLocalValue, waitingQueue,
   type QueueEntry, type ScheduleSlot, type StaffAppointment,
 } from "@/lib/staff";
 
@@ -22,7 +22,7 @@ const buttonClass = "min-h-10 rounded-lg bg-primary px-4 text-sm font-semibold t
 const ghostButtonClass = "min-h-10 rounded-lg border border-primary/25 px-4 text-sm font-semibold text-primary transition hover:bg-accent-surface disabled:cursor-not-allowed disabled:opacity-50";
 
 const errorMessage = (cause: unknown, fallback: string) =>
-  cause instanceof StaffApiError ? cause.message : fallback;
+    cause instanceof StaffApiError ? cause.message : fallback;
 
 const STATUS_META: Record<string, { label: string; className: string }> = {
   BOOKED: { label: "Booked", className: "bg-primary/10 text-primary" },
@@ -51,11 +51,11 @@ export default function StaffPortal() {
     return <StaffPortalInner key={user.id} user={user} />;
   }
   return (
-    <main className="min-h-screen bg-background p-8">
-      {loading ? <p role="status">Checking your staff session...</p> : (
-        <p>Staff sign-in is required. <Link href="/auth/signin" className="text-primary underline">Sign in</Link></p>
-      )}
-    </main>
+      <main className="min-h-screen bg-background p-8">
+        {loading ? <p role="status">Checking your staff session...</p> : (
+            <p>Staff sign-in is required. <Link href="/auth/signin" className="text-primary underline">Sign in</Link></p>
+        )}
+      </main>
   );
 }
 
@@ -80,6 +80,7 @@ function StaffPortalInner({ user }: { user: User }) {
   const [slotSaving, setSlotSaving] = useState(false);
   const [slotError, setSlotError] = useState("");
   const [slotDone, setSlotDone] = useState("");
+  const [appointmentScope, setAppointmentScope] = useState<"ALL_MINE" | "TODAY">("ALL_MINE");
   const [appointmentSearch, setAppointmentSearch] = useState("");
   const [appointmentStatusFilter, setAppointmentStatusFilter] = useState("ALL");
   const lifetime = useRef<AbortController | null>(null);
@@ -102,13 +103,13 @@ function StaffPortalInner({ user }: { user: User }) {
     setError("");
     try {
       const [appointmentData, queueData, slotData] = await Promise.all([
-        api("/appointments", { signal }),
-        api("/queues", { signal }),
+        api("/staff/me/appointments", { signal }),
+        api("/queues/department", { signal }),
         api("/schedules", { signal }),
       ]);
       if (signal.aborted) return;
-      setAppointments(Array.isArray(appointmentData) ? appointmentData as StaffAppointment[] : []);
-      setQueue(Array.isArray(queueData) ? queueData as QueueEntry[] : []);
+      setAppointments(Array.isArray(appointmentData) ? appointmentData.map(mapStaffAppointment) : []);
+      setQueue(Array.isArray(queueData) ? queueData.map((entry) => mapDepartmentQueueEntry(entry, departmentId)) : []);
       setSlots(Array.isArray(slotData) ? slotData as ScheduleSlot[] : []);
     } catch (cause) {
       if (!signal.aborted) setError(errorMessage(cause, "Could not load the clinic data. Please retry."));
@@ -118,7 +119,7 @@ function StaffPortalInner({ user }: { user: User }) {
         setRefreshing(false);
       }
     }
-  }, [api]);
+  }, [api, departmentId]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -126,7 +127,15 @@ function StaffPortalInner({ user }: { user: User }) {
     queueMicrotask(() => {
       if (!controller.signal.aborted) void loadAll(controller.signal);
     });
-    return () => controller.abort();
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === "visible" && !controller.signal.aborted) {
+        void loadAll(controller.signal, true);
+      }
+    }, 15000);
+    return () => {
+      controller.abort();
+      window.clearInterval(interval);
+    };
   }, [loadAll]);
 
   const refresh = useCallback(async () => {
@@ -152,15 +161,17 @@ function StaffPortalInner({ user }: { user: User }) {
   }
 
   const checkIn = (appointmentId: string) =>
-    runAction(`checkin-${appointmentId}`, () => api(`/appointments/${encodeURIComponent(appointmentId)}/check-in`, { method: "POST" }), "Could not check the patient in. Please try again.");
+      runAction(`checkin-${appointmentId}`, () => api(`/appointments/${encodeURIComponent(appointmentId)}/check-in`, { method: "POST" }), "Could not check the patient in. Please try again.");
   const complete = (appointmentId: string) =>
-    runAction(`complete-${appointmentId}`, () => api(`/appointments/${appointmentId}/complete`, { method: "POST" }), "Could not complete the consultation. Please try again.");
+      runAction(`complete-${appointmentId}`, () => api(`/appointments/${encodeURIComponent(appointmentId)}/complete`, { method: "POST" }), "Could not complete the consultation. Please try again.");
+  const markNoShow = (appointmentId: string) =>
+      runAction(`noshow-${appointmentId}`, () => api(`/appointments/${encodeURIComponent(appointmentId)}/no-show`, { method: "POST" }), "Could not mark the patient as no-show.");
   const callNext = () =>
-    runAction("call-next", () => api("/queues/call-next", { method: "POST" }), "Could not call the next patient. Please try again.");
+      runAction("call-next", () => api("/queues/call-next", { method: "POST" }), "Could not call the next patient. Please try again.");
   const markUrgent = (entry: QueueEntry) =>
-    runAction(`urgent-${entry.queueId}`, () => api(`/queues/${entry.queueId}/prioritise`, { method: "POST", body: JSON.stringify({ reason: "Marked urgent by staff" }) }), "Could not flag the queue entry as urgent.");
+      runAction(`urgent-${entry.queueId}`, () => api(`/queues/${encodeURIComponent(entry.queueId)}/prioritise`, { method: "POST", body: JSON.stringify({ reason: "Marked urgent by staff" }) }), "Could not flag the queue entry as urgent.");
 
-  async function createSlot(event: React.SubmitEvent<HTMLFormElement>) {
+  async function createSlot(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const signal = lifetime.current?.signal;
     if (!signal || signal.aborted || slotSaving) return;
@@ -193,13 +204,14 @@ function StaffPortalInner({ user }: { user: User }) {
   }
 
   const removeSlot = (slot: ScheduleSlot) =>
-    runAction(`delete-slot-${slot.slotId}`, () => api(`/schedules/${slot.slotId}`, { method: "DELETE" }), "Could not remove the slot. Please try again.");
+      runAction(`delete-slot-${slot.slotId}`, () => api(`/schedules/${slot.slotId}`, { method: "DELETE" }), "Could not remove the slot. Please try again.");
 
-  const todayAppointments = appointments
-    .filter((item) => isTodayAppointment(item, today))
-    .filter((item) => !departmentId || item.staff?.department?.departmentId === departmentId)
-    .sort((a, b) => appointmentTimeValue(a).localeCompare(appointmentTimeValue(b)));
-  const visibleAppointments = todayAppointments.filter((appointment) => {
+  const scopedAppointments = (appointmentScope === "TODAY"
+          ? appointments.filter((item) => isTodayAppointment(item, today))
+          : appointments
+  ).sort((a, b) => bookingMoment(a).localeCompare(bookingMoment(b)));
+
+  const visibleAppointments = scopedAppointments.filter((appointment) => {
     const query = appointmentSearch.trim().toLocaleLowerCase();
     const patient = appointment.patient;
     const matchesSearch = !query || [
@@ -207,247 +219,274 @@ function StaffPortalInner({ user }: { user: User }) {
     ].some((value) => value?.toLocaleLowerCase().includes(query));
     return matchesSearch && (appointmentStatusFilter === "ALL" || appointment.appointmentStatus === appointmentStatusFilter);
   });
+
   const waitingEntries = waitingQueue(queue, departmentId);
   const consultingEntries = inConsultationQueue(queue, departmentId);
   const openSlots = myOpenSlots(slots, myStaffId, today);
   const staffRoleLabel = String(profile?.staffRole ?? "staff")
-    .toLocaleLowerCase()
-    .replace(/\b\w/g, (letter) => letter.toLocaleUpperCase());
-  const checkedInCount = todayAppointments.filter((appointment) =>
-    ["CHECKEDIN", "WAITING", "INCONSULTATION"].includes(appointment.appointmentStatus),
+      .toLocaleLowerCase()
+      .replace(/\b\w/g, (letter) => letter.toLocaleUpperCase());
+  const checkedInCount = scopedAppointments.filter((appointment) =>
+      ["CHECKEDIN", "WAITING", "INCONSULTATION"].includes(appointment.appointmentStatus),
   ).length;
 
   return (
-    <div className="min-h-screen bg-background">
-      <Header onChanged={() => void refresh()} />
+      <div className="min-h-screen bg-background">
+        <Header onChanged={() => void refresh()} />
 
-      <main className="mx-auto w-full max-w-7xl px-4 pt-24 pb-12 sm:px-6 lg:px-8">
-        <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-widest text-primary">Staff portal</p>
-            <h1 className="mt-1 text-3xl font-bold leading-tight">Clinic queue & availability</h1>
-          
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => setScannerOpen(true)} disabled={Boolean(busyKey)} className={buttonClass}>
-              <span className="inline-flex items-center gap-2"><QrCode size={16} aria-hidden="true" /> Scan patient QR</span>
-            </button>
-            <button type="button" onClick={() => void refresh()} disabled={refreshing} className={ghostButtonClass}>
+        <main className="mx-auto w-full max-w-7xl px-4 pt-24 pb-12 sm:px-6 lg:px-8">
+          <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-widest text-primary">Staff portal</p>
+              <h1 className="mt-1 text-3xl font-bold leading-tight">Clinic queue & availability</h1>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={() => setScannerOpen(true)} disabled={Boolean(busyKey)} className={buttonClass}>
+                <span className="inline-flex items-center gap-2"><QrCode size={16} aria-hidden="true" /> Scan patient QR</span>
+              </button>
+              <button type="button" onClick={() => void refresh()} disabled={refreshing} className={ghostButtonClass}>
               <span className="inline-flex items-center gap-2">
-              <RefreshCw size={15} aria-hidden="true" className={refreshing ? "animate-spin" : ""} />
-              {refreshing ? "Refreshing..." : "Refresh"}
+                <RefreshCw size={15} aria-hidden="true" className={refreshing ? "animate-spin" : ""} />
+                {refreshing ? "Refreshing..." : "Refresh"}
               </span>
-            </button>
-          </div>
-        </header>
-
-        {loading && <p role="status" className="mb-4">Loading clinic data...</p>}
-        {error && (
-          <div role="alert" className="mb-5 rounded-xl border border-error/20 bg-error-background p-4 text-sm text-error">
-            <p>{error}<SessionExpiredAction message={error} returnTo="/staff" /></p>
-          </div>
-        )}
-        {actionError && <div role="alert" className="mb-5 rounded-xl border border-error/20 bg-error-background p-4 text-sm text-error">{actionError}<SessionExpiredAction message={actionError} returnTo="/staff" /></div>}
-
-        <section aria-label={`${staffRoleLabel} dashboard summary`} className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-xl border border-primary/15 bg-surface p-4 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Your role</p>
-            <p className="mt-1 text-lg font-bold">{staffRoleLabel}</p>
-          </div>
-          <div className="rounded-xl border border-primary/15 bg-surface p-4 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Today's appointments</p>
-            <p className="mt-1 text-2xl font-bold">{loading ? "—" : todayAppointments.length}</p>
-          </div>
-          <div className="rounded-xl border border-primary/15 bg-surface p-4 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Checked in today</p>
-            <p className="mt-1 text-2xl font-bold">{loading ? "—" : checkedInCount}</p>
-          </div>
-          <div className="rounded-xl border border-primary/15 bg-surface p-4 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Waiting now</p>
-            <p className="mt-1 text-2xl font-bold">{loading ? "—" : waitingEntries.length}</p>
-          </div>
-        </section>
-
-        <div className="grid gap-6 lg:grid-cols-2">
-
-          <section aria-labelledby="today-heading" className="rounded-2xl border border-primary/15 bg-surface p-5 shadow-sm">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <h2 id="today-heading" className="flex items-center gap-2 text-lg font-bold">
-                <ClipboardList size={18} aria-hidden="true" className="text-primary" /> Today's appointments
-              </h2>
-              <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">{visibleAppointments.length} / {todayAppointments.length}</span>
-            </div>
-            <div className="mb-4 grid gap-3 sm:grid-cols-[1fr_12rem]">
-              <label className="text-xs font-semibold text-neutral-600">
-                Search patients
-                <input
-                  type="search"
-                  value={appointmentSearch}
-                  onChange={(event) => setAppointmentSearch(event.target.value)}
-                  placeholder="Name, email, or phone"
-                  className={inputClass}
-                />
-              </label>
-              <label className="text-xs font-semibold text-neutral-600">
-                Filter by status
-                <select value={appointmentStatusFilter} onChange={(event) => setAppointmentStatusFilter(event.target.value)} className={inputClass}>
-                  <option value="ALL">All statuses</option>
-                  {Object.entries(STATUS_META).map(([status, meta]) => <option key={status} value={status}>{meta.label}</option>)}
-                </select>
-              </label>
-            </div>
-            {!loading && todayAppointments.length === 0 && (
-              <p className="text-sm text-neutral-600">No appointments booked for today. Patients who book will appear here.</p>
-            )}
-            {!loading && todayAppointments.length > 0 && visibleAppointments.length === 0 && (
-              <p className="text-sm text-neutral-600">No appointments match your search and status filter.</p>
-            )}
-            <ul className="grid gap-2">
-              {visibleAppointments.map((appointment) => {
-                const busyPrefix = busyKey?.endsWith(appointment.appointmentId);
-                return (
-                  <li key={appointment.appointmentId} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/10 bg-background p-3">
-                    <div className="min-w-0">
-                      <p className="font-semibold leading-tight">
-                        {patientName(appointment)}
-                        {appointment.priority === "URGENT" && <span className="ml-2 rounded-full bg-error px-2 py-0.5 text-[10px] font-bold uppercase text-white align-middle">Urgent</span>}
-                      </p>
-                      <p className="mt-0.5 text-xs text-neutral-600">
-                        {appointment.slot
-                          ? `${appointment.slot.startTime.slice(0, 5)} – ${appointment.slot.endTime.slice(0, 5)} · Dr. ${appointment.staff?.firstName ?? ""} ${appointment.staff?.lastName ?? ""}`.trim()
-                          : "Walk-in"}
-                        {appointment.checkInTime ? ` · Checked in ${appointment.checkInTime.slice(11, 16)}` : ""}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <StatusBadge status={appointment.appointmentStatus} />
-                      {appointment.appointmentStatus === "BOOKED" && (
-                        <button type="button" disabled={Boolean(busyKey)} onClick={() => void checkIn(appointment.appointmentId)} className="min-h-9 rounded-lg bg-primary px-3 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50">
-                          {busyPrefix ? "Checking in..." : "Check in"}
-                        </button>
-                      )}
-                      {appointment.appointmentStatus === "INCONSULTATION" && (
-                        <button type="button" disabled={Boolean(busyKey)} onClick={() => void complete(appointment.appointmentId)} className="min-h-9 rounded-lg border border-success/40 px-3 text-xs font-semibold text-success hover:bg-success-background disabled:opacity-50">
-                          {busyPrefix ? "Saving..." : "Complete"}
-                        </button>
-                      )}
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-
-          <section aria-labelledby="queue-heading" className="rounded-2xl border border-primary/15 bg-surface p-5 shadow-sm">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <h2 id="queue-heading" className="flex items-center gap-2 text-lg font-bold">
-                <ListFilter size={18} aria-hidden="true" className="text-primary" /> Waiting queue
-              </h2>
-              <button type="button" disabled={Boolean(busyKey) || waitingEntries.length === 0} onClick={() => void callNext()} className={buttonClass}>
-                {busyKey === "call-next" ? "Calling..." : "Call next patient"}
               </button>
             </div>
-            {!loading && waitingEntries.length === 0 && consultingEntries.length === 0 && (
-              <p className="text-sm text-neutral-600">Nobody is waiting. Patients appear here after they are checked in.</p>
-            )}
-            <ol className="grid gap-2">
-              {waitingEntries.map((entry) => (
-                <li key={entry.queueId} className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-200/60 bg-amber-50/60 p-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="font-semibold leading-tight">{patientName(entry.appointment)}</p>
-                    <p className="mt-0.5 text-xs text-neutral-600">
-                      Booked {entry.appointment.bookedAt?.slice(11, 16) ?? "—"}
-                      {entry.appointment.checkInTime ? ` · Checked in ${entry.appointment.checkInTime.slice(11, 16)}` : ""}
-                      {" · "}{entry.department?.name ?? "Department"}
-                    </p>
-                  </div>
-                  {entry.appointment.priority === "URGENT"
-                    ? <span className="rounded-full bg-error px-2 py-0.5 text-[10px] font-bold uppercase text-white">Urgent</span>
-                    : (
-                      <button type="button" disabled={Boolean(busyKey)} onClick={() => void markUrgent(entry)} className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-error/30 px-3 text-xs font-semibold text-error hover:bg-error-background disabled:opacity-50">
-                        <Zap size={13} aria-hidden="true" /> Mark urgent
-                      </button>
-                    )}
-                </li>
-              ))}
-            </ol>
-            {consultingEntries.length > 0 && (
-              <div className="mt-4">
-                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">In consultation</h3>
-                <ul className="grid gap-2">
-                  {consultingEntries.map((entry) => (
-                    <li key={entry.queueId} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-violet-200/70 bg-violet-50/60 p-3">
-                      <p className="font-semibold leading-tight">{patientName(entry.appointment)}
-                        <span className="ml-2 text-xs font-normal text-neutral-500">called {entry.appointment.calledTime?.slice(11, 16) ?? ""}</span>
-                      </p>
-                      <button type="button" disabled={Boolean(busyKey)} onClick={() => void complete(entry.appointment.appointmentId)} className="min-h-9 rounded-lg border border-success/40 px-3 text-xs font-semibold text-success hover:bg-success-background disabled:opacity-50">
-                        {busyKey === `complete-${entry.appointment.appointmentId}` ? "Saving..." : "Complete"}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+          </header>
+
+          {loading && <p role="status" className="mb-4">Loading clinic data...</p>}
+          {error && (
+              <div role="alert" className="mb-5 rounded-xl border border-error/20 bg-error-background p-4 text-sm text-error">
+                <p>{error}<SessionExpiredAction message={error} returnTo="/staff" /></p>
               </div>
-            )}
-          </section>
-        </div>
+          )}
+          {actionError && <div role="alert" className="mb-5 rounded-xl border border-error/20 bg-error-background p-4 text-sm text-error">{actionError}<SessionExpiredAction message={actionError} returnTo="/staff" /></div>}
 
-        {isDoctor && (
-          <section aria-labelledby="availability-heading" className="mt-6 rounded-2xl border border-primary/15 bg-surface p-5 shadow-sm">
-            <h2 id="availability-heading" className="flex items-center gap-2 text-lg font-bold">
-              <CalendarClock size={18} aria-hidden="true" className="text-primary" /> My availability
-            </h2>
-            <p className="mt-1 text-sm text-neutral-600">Open a clinic window (e.g. 09:00–15:00) with a capacity. Patients who book that window are served in the order they booked, with urgent patients ahead. Only OPEN windows for active doctors appear on the patient booking page.</p>
-
-            <form onSubmit={createSlot} className="mt-4 flex flex-wrap items-end gap-3">
-              <label className="text-sm font-semibold">Date
-                <input required type="date" min={today} value={slotForm.slotDate} onChange={(event) => setSlotForm((current) => ({ ...current, slotDate: event.target.value }))} className={inputClass} />
-              </label>
-              <label className="text-sm font-semibold">Start time
-                <input required type="time" value={slotForm.startTime} onChange={(event) => setSlotForm((current) => ({ ...current, startTime: event.target.value }))} className={inputClass} />
-              </label>
-              <label className="text-sm font-semibold">End time
-                <input required type="time" value={slotForm.endTime} onChange={(event) => setSlotForm((current) => ({ ...current, endTime: event.target.value }))} className={inputClass} />
-              </label>
-              <label className="text-sm font-semibold">Patients
-                <input required type="number" min={1} step={1} inputMode="numeric" value={slotForm.capacity} onChange={(event) => setSlotForm((current) => ({ ...current, capacity: event.target.value }))} className={`${inputClass} w-24`} />
-              </label>
-              <button type="submit" disabled={slotSaving} className={`${buttonClass} inline-flex items-center gap-1.5`}>
-                <Plus size={15} aria-hidden="true" />
-                {slotSaving ? "Adding..." : "Add slot"}
-              </button>
-            </form>
-            {slotError && <p role="alert" className="mt-2 text-sm text-error">{slotError}</p>}
-            {slotDone && <p role="status" className="mt-2 text-sm font-medium text-success">{slotDone}</p>}
-
-            <div className="mt-4">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Your upcoming open slots</h3>
-              {openSlots.length === 0 ? (
-                <p className="mt-1 text-sm text-neutral-600">No open slots. Add your availability above so patients can book.</p>
-              ) : (
-                <ul className="mt-2 flex flex-wrap gap-2">
-                  {openSlots.map((slot) => (
-                    <li key={slot.slotId} className="flex items-center gap-2 rounded-lg border border-primary/15 bg-background py-1.5 pl-3 pr-1.5 text-sm">
-                      <UserRound size={13} aria-hidden="true" className="text-primary" />
-                      <span>{slot.slotDate} · {slot.startTime.slice(0, 5)} – {slot.endTime.slice(0, 5)} · up to {slot.capacity ?? 1} patient{(slot.capacity ?? 1) === 1 ? "" : "s"}</span>
-                      <button type="button" disabled={Boolean(busyKey)} onClick={() => void removeSlot(slot)} aria-label={`Remove slot on ${slot.slotDate} at ${slot.startTime.slice(0, 5)}`} className="rounded-md p-1.5 text-neutral-400 transition hover:bg-error-background hover:text-error disabled:opacity-50">
-                        {busyKey === `delete-slot-${slot.slotId}` ? <RefreshCw size={14} className="animate-spin" aria-hidden="true" /> : <Trash2 size={14} aria-hidden="true" />}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
+          <section aria-label={`${staffRoleLabel} dashboard summary`} className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-xl border border-primary/15 bg-surface p-4 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Your role</p>
+              <p className="mt-1 text-lg font-bold">{staffRoleLabel}</p>
+            </div>
+            <div className="rounded-xl border border-primary/15 bg-surface p-4 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">My appointments</p>
+              <p className="mt-1 text-2xl font-bold">{loading ? "—" : appointments.length}</p>
+            </div>
+            <div className="rounded-xl border border-primary/15 bg-surface p-4 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Active / Checked in</p>
+              <p className="mt-1 text-2xl font-bold">{loading ? "—" : checkedInCount}</p>
+            </div>
+            <div className="rounded-xl border border-primary/15 bg-surface p-4 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Waiting in queue</p>
+              <p className="mt-1 text-2xl font-bold">{loading ? "—" : waitingEntries.length}</p>
             </div>
           </section>
-        )}
 
-        <p className="mt-6 flex items-center gap-2 text-xs text-neutral-500">
-          <UserRound size={12} aria-hidden="true" /> Appointments and queues are live from the clinic API. Signed in as {profile?.email ?? user.email}. <button type="button" className="underline hover:text-primary" onClick={() => void refreshProfile()}>Reload profile</button>
-        </p>
-      </main>
-      {scannerOpen && <CheckInQrScanner onClose={() => setScannerOpen(false)} onDetected={(appointmentId) => {
-        setScannerOpen(false);
-        void checkIn(appointmentId);
-      }} />}
-    </div>
+          <div className="grid gap-6 lg:grid-cols-2">
+            <section aria-labelledby="today-heading" className="rounded-2xl border border-primary/15 bg-surface p-5 shadow-sm">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <h2 id="today-heading" className="flex items-center gap-2 text-lg font-bold">
+                  <ClipboardList size={18} aria-hidden="true" className="text-primary" /> My appointments (FIFO)
+                </h2>
+                <div className="flex items-center gap-1.5">
+                  <button
+                      type="button"
+                      onClick={() => setAppointmentScope("ALL_MINE")}
+                      className={`rounded-lg px-2.5 py-1 text-xs font-semibold ${appointmentScope === "ALL_MINE" ? "bg-primary text-white" : "bg-primary/10 text-primary"}`}
+                  >
+                    All ({appointments.length})
+                  </button>
+                  <button
+                      type="button"
+                      onClick={() => setAppointmentScope("TODAY")}
+                      className={`rounded-lg px-2.5 py-1 text-xs font-semibold ${appointmentScope === "TODAY" ? "bg-primary text-white" : "bg-primary/10 text-primary"}`}
+                  >
+                    Today
+                  </button>
+                </div>
+              </div>
+
+              <div className="mb-4 grid gap-3 sm:grid-cols-[1fr_12rem]">
+                <label className="text-xs font-semibold text-neutral-600">
+                  Search patients
+                  <input
+                      type="search"
+                      value={appointmentSearch}
+                      onChange={(event) => setAppointmentSearch(event.target.value)}
+                      placeholder="Name, email, or phone"
+                      className={inputClass}
+                  />
+                </label>
+                <label className="text-xs font-semibold text-neutral-600">
+                  Filter by status
+                  <select value={appointmentStatusFilter} onChange={(event) => setAppointmentStatusFilter(event.target.value)} className={inputClass}>
+                    <option value="ALL">All statuses</option>
+                    {Object.entries(STATUS_META).map(([status, meta]) => <option key={status} value={status}>{meta.label}</option>)}
+                  </select>
+                </label>
+              </div>
+
+              {!loading && scopedAppointments.length === 0 && (
+                  <p className="text-sm text-neutral-600">No appointments found. Patients who book with you will appear here in FIFO order.</p>
+              )}
+              {!loading && scopedAppointments.length > 0 && visibleAppointments.length === 0 && (
+                  <p className="text-sm text-neutral-600">No appointments match your search and status filter.</p>
+              )}
+
+              <ul className="grid gap-2">
+                {visibleAppointments.map((appointment, index) => {
+                  const busyPrefix = busyKey?.endsWith(appointment.appointmentId);
+                  return (
+                      <li key={appointment.appointmentId} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/10 bg-background p-3">
+                        <div className="min-w-0">
+                          <p className="font-semibold leading-tight">
+                            <span className="mr-1.5 text-xs font-bold text-primary">#{index + 1}</span>
+                            {patientName(appointment)}
+                            {appointment.priority === "URGENT" && <span className="ml-2 rounded-full bg-error px-2 py-0.5 text-[10px] font-bold uppercase text-white align-middle">Urgent</span>}
+                          </p>
+                          <p className="mt-0.5 text-xs text-neutral-600">
+                            {appointment.slot
+                                ? `${appointment.slot.slotDate} · ${appointment.slot.startTime.slice(0, 5)} – ${appointment.slot.endTime.slice(0, 5)}`
+                                : "Walk-in"}
+                            {appointment.createdAt ? ` · Created ${appointment.createdAt.slice(0, 16).replace("T", " ")}` : ""}
+                            {appointment.checkInTime ? ` · Checked in ${appointment.checkInTime.slice(11, 16)}` : ""}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <StatusBadge status={appointment.appointmentStatus} />
+                          {appointment.appointmentStatus === "BOOKED" && (
+                              <button type="button" disabled={Boolean(busyKey)} onClick={() => void checkIn(appointment.appointmentId)} className="min-h-9 rounded-lg bg-primary px-3 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50">
+                                {busyPrefix ? "Checking in..." : "Check in"}
+                              </button>
+                          )}
+                          {appointment.appointmentStatus === "INCONSULTATION" && (
+                              <button type="button" disabled={Boolean(busyKey)} onClick={() => void complete(appointment.appointmentId)} className="min-h-9 rounded-lg border border-success/40 px-3 text-xs font-semibold text-success hover:bg-success-background disabled:opacity-50">
+                                {busyPrefix ? "Saving..." : "Complete"}
+                              </button>
+                          )}
+                        </div>
+                      </li>
+                  );
+                })}
+              </ul>
+            </section>
+
+            <section aria-labelledby="queue-heading" className="rounded-2xl border border-primary/15 bg-surface p-5 shadow-sm">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <h2 id="queue-heading" className="flex items-center gap-2 text-lg font-bold">
+                  <ListFilter size={18} aria-hidden="true" className="text-primary" /> Waiting queue (FIFO)
+                </h2>
+                <button type="button" disabled={Boolean(busyKey) || waitingEntries.length === 0} onClick={() => void callNext()} className={buttonClass}>
+                  {busyKey === "call-next" ? "Calling..." : "Call next patient"}
+                </button>
+              </div>
+              {!loading && waitingEntries.length === 0 && consultingEntries.length === 0 && (
+                  <p className="text-sm text-neutral-600">Nobody is waiting. Patients appear here in FIFO order after they check in.</p>
+              )}
+              <ol className="grid gap-2">
+                {waitingEntries.map((entry, idx) => (
+                    <li key={entry.queueId} className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-200/60 bg-amber-50/60 p-3">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-white">
+                    #{entry.position > 0 ? entry.position : idx + 1}
+                  </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold leading-tight">{patientName(entry.appointment)}</p>
+                        <p className="mt-0.5 text-xs text-neutral-600">
+                          Created {entry.appointment.createdAt ? entry.appointment.createdAt.slice(0, 16).replace("T", " ") : "—"}
+                          {entry.appointment.checkInTime ? ` · Checked in ${entry.appointment.checkInTime.slice(11, 16)}` : ""}
+                          {" · "}{entry.department?.name ?? "Department"}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {entry.appointment.priority === "URGENT"
+                            ? <span className="rounded-full bg-error px-2 py-0.5 text-[10px] font-bold uppercase text-white">Urgent</span>
+                            : (
+                                <button type="button" disabled={Boolean(busyKey)} onClick={() => void markUrgent(entry)} className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-error/30 px-3 text-xs font-semibold text-error hover:bg-error-background disabled:opacity-50">
+                                  <Zap size={13} aria-hidden="true" /> Mark urgent
+                                </button>
+                            )}
+                        <button type="button" disabled={Boolean(busyKey)} onClick={() => void markNoShow(entry.appointment.appointmentId)} className="min-h-9 rounded-lg border border-neutral-300 px-2.5 text-xs font-semibold text-neutral-600 hover:bg-neutral-100 disabled:opacity-50">
+                          No-show
+                        </button>
+                      </div>
+                    </li>
+                ))}
+              </ol>
+              {consultingEntries.length > 0 && (
+                  <div className="mt-4">
+                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">In consultation</h3>
+                    <ul className="grid gap-2">
+                      {consultingEntries.map((entry) => (
+                          <li key={entry.queueId} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-violet-200/70 bg-violet-50/60 p-3">
+                            <p className="font-semibold leading-tight">{patientName(entry.appointment)}
+                              <span className="ml-2 text-xs font-normal text-neutral-500">called {entry.appointment.calledTime?.slice(11, 16) ?? ""}</span>
+                            </p>
+                            <button type="button" disabled={Boolean(busyKey)} onClick={() => void complete(entry.appointment.appointmentId)} className="min-h-9 rounded-lg border border-success/40 px-3 text-xs font-semibold text-success hover:bg-success-background disabled:opacity-50">
+                              {busyKey === `complete-${entry.appointment.appointmentId}` ? "Saving..." : "Complete"}
+                            </button>
+                          </li>
+                      ))}
+                    </ul>
+                  </div>
+              )}
+            </section>
+          </div>
+
+          {isDoctor && (
+              <section aria-labelledby="availability-heading" className="mt-6 rounded-2xl border border-primary/15 bg-surface p-5 shadow-sm">
+                <h2 id="availability-heading" className="flex items-center gap-2 text-lg font-bold">
+                  <CalendarClock size={18} aria-hidden="true" className="text-primary" /> My availability
+                </h2>
+                <p className="mt-1 text-sm text-neutral-600">Open a clinic window (e.g. 09:00–15:00) with a capacity. Patients who book that window are served in FIFO order, with urgent patients ahead. Only OPEN windows for active doctors appear on the patient booking page.</p>
+
+                <form onSubmit={createSlot} className="mt-4 flex flex-wrap items-end gap-3">
+                  <label className="text-sm font-semibold">Date
+                    <input required type="date" min={today} value={slotForm.slotDate} onChange={(event) => setSlotForm((current) => ({ ...current, slotDate: event.target.value }))} className={inputClass} />
+                  </label>
+                  <label className="text-sm font-semibold">Start time
+                    <input required type="time" value={slotForm.startTime} onChange={(event) => setSlotForm((current) => ({ ...current, startTime: event.target.value }))} className={inputClass} />
+                  </label>
+                  <label className="text-sm font-semibold">End time
+                    <input required type="time" value={slotForm.endTime} onChange={(event) => setSlotForm((current) => ({ ...current, endTime: event.target.value }))} className={inputClass} />
+                  </label>
+                  <label className="text-sm font-semibold">Patients
+                    <input required type="number" min={1} step={1} inputMode="numeric" value={slotForm.capacity} onChange={(event) => setSlotForm((current) => ({ ...current, capacity: event.target.value }))} className={`${inputClass} w-24`} />
+                  </label>
+                  <button type="submit" disabled={slotSaving} className={`${buttonClass} inline-flex items-center gap-1.5`}>
+                    <Plus size={15} aria-hidden="true" />
+                    {slotSaving ? "Adding..." : "Add slot"}
+                  </button>
+                </form>
+                {slotError && <p role="alert" className="mt-2 text-sm text-error">{slotError}</p>}
+                {slotDone && <p role="status" className="mt-2 text-sm font-medium text-success">{slotDone}</p>}
+
+                <div className="mt-4">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Your upcoming open slots</h3>
+                  {openSlots.length === 0 ? (
+                      <p className="mt-1 text-sm text-neutral-600">No open slots. Add your availability above so patients can book.</p>
+                  ) : (
+                      <ul className="mt-2 flex flex-wrap gap-2">
+                        {openSlots.map((slot) => (
+                            <li key={slot.slotId} className="flex items-center gap-2 rounded-lg border border-primary/15 bg-background py-1.5 pl-3 pr-1.5 text-sm">
+                              <UserRound size={13} aria-hidden="true" className="text-primary" />
+                              <span>{slot.slotDate} · {slot.startTime.slice(0, 5)} – {slot.endTime.slice(0, 5)} · up to {slot.capacity ?? 1} patient{(slot.capacity ?? 1) === 1 ? "" : "s"}</span>
+                              <button type="button" disabled={Boolean(busyKey)} onClick={() => void removeSlot(slot)} aria-label={`Remove slot on ${slot.slotDate} at ${slot.startTime.slice(0, 5)}`} className="rounded-md p-1.5 text-neutral-400 transition hover:bg-error-background hover:text-error disabled:opacity-50">
+                                {busyKey === `delete-slot-${slot.slotId}` ? <RefreshCw size={14} className="animate-spin" aria-hidden="true" /> : <Trash2 size={14} aria-hidden="true" />}
+                              </button>
+                            </li>
+                        ))}
+                      </ul>
+                  )}
+                </div>
+              </section>
+          )}
+
+          <p className="mt-6 flex items-center gap-2 text-xs text-neutral-500">
+            <UserRound size={12} aria-hidden="true" /> Appointments and queues are live from the clinic API. Signed in as {profile?.email ?? user.email}. <button type="button" className="underline hover:text-primary" onClick={() => void refreshProfile()}>Reload profile</button>
+          </p>
+        </main>
+        {scannerOpen && <CheckInQrScanner onClose={() => setScannerOpen(false)} onDetected={(appointmentId) => {
+          setScannerOpen(false);
+          void checkIn(appointmentId);
+        }} />}
+      </div>
   );
 }

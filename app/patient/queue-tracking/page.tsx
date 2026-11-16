@@ -77,11 +77,15 @@ function QueueTracking({ user }: { user: User }) {
       if (signal?.aborted) return;
       setBookings(list);
       const snapshots = await Promise.all(list.map(async (booking) => {
+        const status = booking.appointmentStatus.toUpperCase();
+        if (status === "BOOKED" || status === "CANCELLED") {
+          return { appointmentId: booking.appointmentId, queuePosition: null, queueStatus: status, estimatedProgress: null, error: "" };
+        }
         try {
           const data = await api(`/appointments/${encodeURIComponent(booking.appointmentId)}/queue-position`, { signal });
           return readQueue(data, booking);
         } catch (cause) {
-          return { appointmentId: booking.appointmentId, queuePosition: null, queueStatus: booking.appointmentStatus.toUpperCase(), estimatedProgress: null, error: friendlyError(cause) };
+          return { appointmentId: booking.appointmentId, queuePosition: null, queueStatus: status, estimatedProgress: null, error: friendlyError(cause) };
         }
       }));
       if (!signal?.aborted) setQueues(snapshots);

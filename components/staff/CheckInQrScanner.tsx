@@ -7,17 +7,45 @@ type DetectedBarcode = { rawValue?: string };
 type BarcodeDetectorLike = { detect: (source: HTMLVideoElement) => Promise<DetectedBarcode[]> };
 type BarcodeDetectorConstructor = new (options: { formats: string[] }) => BarcodeDetectorLike;
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function appointmentIdFromQr(rawValue: string): string | null {
+  const trimmed = rawValue.trim();
+  if (!trimmed) return null;
+
+  // 1. Direct UUID string
+  if (UUID_PATTERN.test(trimmed)) {
+    return trimmed;
+  }
+
+  // 2. Client-side JSON payload: {"type":"CLINIQ_CHECK_IN","appointmentId":"..."}
+  if (trimmed.startsWith("{")) {
+    try {
+      const value: unknown = JSON.parse(trimmed);
+      if (value && typeof value === "object") {
+        const payload = value as Record<string, unknown>;
+        const id = typeof payload.appointmentId === "string" ? payload.appointmentId.trim() : "";
+        if (payload.type === "CLINIQ_CHECK_IN" && UUID_PATTERN.test(id)) {
+          return id;
+        }
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  // 3. Backend/web URL format: <baseUrl>/check-in?id=<appointmentId> or /check-in?id=<appointmentId>
   try {
-    const value: unknown = JSON.parse(rawValue);
-    if (!value || typeof value !== "object") return null;
-    const payload = value as Record<string, unknown>;
-    return payload.type === "CLINIQ_CHECK_IN" && typeof payload.appointmentId === "string" && payload.appointmentId.trim()
-      ? payload.appointmentId.trim()
-      : null;
+    const parsed = new URL(trimmed, "http://localhost");
+    const idParam = (parsed.searchParams.get("id") ?? parsed.searchParams.get("appointmentId") ?? "").trim();
+    if (UUID_PATTERN.test(idParam)) {
+      return idParam;
+    }
   } catch {
     return null;
   }
+
+  return null;
 }
 
 export default function CheckInQrScanner({ onDetected, onClose }: { onDetected: (appointmentId: string) => void; onClose: () => void }) {
