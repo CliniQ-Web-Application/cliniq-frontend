@@ -109,6 +109,15 @@ function StaffPortalInner({ user }: { user: User }) {
     runAction(`complete-${appointmentId}`, () => staffApi(`/appointments/${appointmentId}/complete`, { method: "POST" }), "Could not complete the consultation. Please try again.");
   const callNext = () =>
     runAction("call-next", () => staffApi("/queues/call-next", { method: "POST" }), "Could not call the next patient. Please try again.");
+  const broadcastDelay = () => {
+    const msg = window.prompt("Enter delay message for waiting patients:", "We are currently running 15 minutes behind schedule.");
+    if (!msg) return;
+    return runAction(
+        "delay-broadcast",
+        () => staffApi("/queues/broadcast-delay", { method: "POST", body: JSON.stringify({ message: msg }) }),
+        "Could not send the delay broadcast."
+    );
+  };
   const markUrgent = (entry: QueueEntry) =>
     runAction(`urgent-${entry.queueId}`, () => staffApi(`/queues/${entry.queueId}/prioritise`, { method: "POST", body: JSON.stringify({ reason: "Marked urgent by staff" }) }), "Could not flag the queue entry as urgent.");
   const markNoShow = (appointmentId: string) => {
@@ -309,6 +318,9 @@ function StaffPortalInner({ user }: { user: User }) {
               <h2 id="queue-heading" className="flex items-center gap-2 text-lg font-bold">
                 <ListFilter size={18} aria-hidden="true" className="text-primary" /> Waiting queue
               </h2>
+              <button type="button" disabled={Boolean(busyKey) || waitingEntries.length === 0} onClick={() => void broadcastDelay()} className={ghostButtonClass}>
+                {busyKey === "delay-broadcast" ? "Sending..." : "Announce Delay"}
+              </button>
               <button type="button" disabled={Boolean(busyKey) || waitingEntries.length === 0} onClick={() => void callNext()} className={buttonClass}>
                 {busyKey === "call-next" ? "Calling..." : "Call next patient"}
               </button>
