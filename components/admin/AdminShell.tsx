@@ -1,11 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { supabase } from "@/lib/supabase";
-import { createStaffApi, StaffApiError, type QueueEntry } from "@/lib/staff";
+import { staffApi } from "@/lib/api-client";
+import { useAdminQueues, useAnalytics, useAuditLogs, useDepartments, useStaffList } from "@/lib/queries";
+import { StaffApiError, type QueueEntry } from "@/lib/staff";
 import type { Department } from "@/types/Department";
+import AppointmentCard from "@/components/appointments/AppointmentCard";
+import PageHeader from "@/components/ui/PageHeader";
 import {
   Activity,
   AlertTriangle,
@@ -16,6 +19,7 @@ import {
   FileText,
   Filter,
   LayoutDashboard,
+  Loader2,
   LogOut,
   Menu,
   Pencil,
@@ -81,6 +85,9 @@ function cx(...classes: Array<string | false | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
+const adminError = (cause: unknown, fallback: string) =>
+  cause instanceof StaffApiError ? cause.message : fallback;
+
 function StatusBadge({ active, children }: { active: boolean; children: React.ReactNode }) {
   return (
     <span className={cx(
@@ -95,11 +102,22 @@ function StatusBadge({ active, children }: { active: boolean; children: React.Re
 
 function AdminHeader({ activePage }: { activePage: AdminPage }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const { profile, user, signOut } = useAuth();
 
   const adminName = profile?.firstName && profile?.lastName
     ? `${profile.firstName} ${profile.lastName}`
     : profile?.email || user?.email || "Admin";
+
+  async function handleSignOut() {
+    if (signingOut) return;
+    setSigningOut(true);
+    try {
+      await signOut();
+    } finally {
+      setSigningOut(false);
+    }
+  }
 
   return (
     <header className="sticky top-0 z-30 border-b border-primary/15 bg-surface/95 shadow-sm backdrop-blur">
@@ -128,11 +146,12 @@ function AdminHeader({ activePage }: { activePage: AdminPage }) {
           </span>
           <button
             type="button"
-            onClick={() => signOut()}
-            className="hidden min-h-10 items-center gap-2 rounded-lg border border-primary/25 px-3 text-sm font-semibold text-primary transition hover:bg-accent-surface sm:flex"
+            onClick={() => void handleSignOut()}
+            disabled={signingOut}
+            className="hidden min-h-10 items-center gap-2 rounded-lg border border-primary/25 px-3 text-sm font-semibold text-primary transition hover:bg-accent-surface disabled:cursor-not-allowed disabled:opacity-50 sm:flex"
           >
-            <LogOut size={16} />
-            Logout
+            {signingOut ? <Loader2 size={16} className="animate-spin" /> : <LogOut size={16} />}
+            {signingOut ? "Signing out..." : "Logout"}
           </button>
           <button type="button" onClick={() => setMenuOpen((open) => !open)} className="rounded-lg p-2 lg:hidden" aria-label="Toggle admin navigation">
             {menuOpen ? <X size={22} /> : <Menu size={22} />}
@@ -151,11 +170,13 @@ function AdminHeader({ activePage }: { activePage: AdminPage }) {
               type="button"
               onClick={() => {
                 setMenuOpen(false);
-                signOut();
+                void handleSignOut();
               }}
-              className="flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold text-red-600 no-underline hover:bg-red-50"
+              disabled={signingOut}
+              className="flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold text-red-600 no-underline hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <LogOut size={17} /> Logout
+              {signingOut ? <Loader2 size={17} className="animate-spin" /> : <LogOut size={17} />}
+              {signingOut ? "Signing out..." : "Logout"}
             </button>
           </div>
         </nav>
@@ -164,17 +185,8 @@ function AdminHeader({ activePage }: { activePage: AdminPage }) {
   );
 }
 
-function PageHeading({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
-      <div>
-        <p className="text-xs font-bold uppercase tracking-[0.16em] text-primary">{eyebrow}</p>
-        <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">{title}</h1>
-        <p className="mt-2 max-w-2xl text-sm text-neutral-600 sm:text-base">{description}</p>
-      </div>
-      {action}
-    </div>
-  );
+function PageHeading({ title, description, action }: { title: string; description: string; action?: React.ReactNode }) {
+  return <PageHeader title={title} description={description} action={action} />;
 }
 
 function LegacyAnalyticsPage() {
@@ -182,7 +194,6 @@ function LegacyAnalyticsPage() {
   return (
     <>
       <PageHeading
-        eyebrow="Hospital overview"
         title="Analytics"
         description="Track waiting times, appointments and attendance across Nyangabgwe Referral Hospital."
         action={<button type="button" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-hover"><Download size={16} /> Generate report</button>}
@@ -238,52 +249,28 @@ function AnalyticsPage() {
   const [to, setTo] = useState(today.toISOString().slice(0, 10));
   const [departmentId, setDepartmentId] = useState("");
   const [doctorId, setDoctorId] = useState("");
-  const [data, setData] = useState<AnalyticsPayload | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const params = new URLSearchParams();
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
+  if (departmentId) params.set("departmentId", departmentId);
+  if (doctorId) params.set("doctorId", doctorId);
+  const paramsString = params.toString();
 
-  const api = useMemo(() => createStaffApi({
-    baseUrl: process.env.NEXT_PUBLIC_API_URL,
-    getToken: async () => {
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      const session = sessionData.session;
-      if (sessionError || !session || session.user.id !== user?.id) return null;
-      return session.access_token;
-    },
-    refreshToken: async () => {
-      const { data: sessionData, error: refreshError } = await supabase.auth.refreshSession();
-      const session = sessionData.session;
-      if (refreshError || !session || session.user.id !== user?.id) return null;
-      return session.access_token;
-    },
-  }), [user?.id]);
-
-  const loadAnalytics = useCallback(async () => {
-    if (!user || role !== "ADMIN") return;
-    if (from && to && from > to) {
-      setError("The start date must be before or equal to the end date.");
-      return;
-    }
-    setLoading(true);
-    setError("");
-    const params = new URLSearchParams();
-    if (from) params.set("from", from);
-    if (to) params.set("to", to);
-    if (departmentId) params.set("departmentId", departmentId);
-    if (doctorId) params.set("doctorId", doctorId);
-    try {
-      setData(await api(`/analytics?${params.toString()}`) as AnalyticsPayload);
-    } catch (cause) {
-      setError(cause instanceof StaffApiError ? cause.message : "Could not load analytics. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  }, [api, departmentId, doctorId, from, role, to, user]);
-
-  useEffect(() => {
-    if (authLoading || !user || role !== "ADMIN") return;
-    void loadAnalytics();
-  }, [authLoading, loadAnalytics, role, user]);
+  // Changing filters changes the query key, so the shared cache refetches automatically.
+  const {
+    data,
+    isPending: loading,
+    error: queryError,
+    refetch,
+  } = useAnalytics<AnalyticsPayload>(paramsString, {
+    enabled: !authLoading && Boolean(user) && role === "ADMIN",
+  });
+  const invalidRange = Boolean(from && to && from > to);
+  const error = invalidRange
+    ? "The start date must be before or equal to the end date."
+    : queryError
+      ? adminError(queryError, "Could not load analytics. Please try again.")
+      : "";
 
   function exportReport() {
     if (!data) return;
@@ -320,14 +307,14 @@ function AnalyticsPage() {
 
   return (
     <>
-      <PageHeading eyebrow="Hospital overview" title="Analytics" description="Track waiting times, appointments and attendance from live clinic data." action={<button type="button" onClick={exportReport} disabled={loading || !data} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white shadow-sm hover:bg-primary-hover disabled:opacity-50"><Download size={16} /> Generate report</button>} />
+      <PageHeading title="Analytics" description="Track waiting times, appointments and attendance from live clinic data." action={<button type="button" onClick={exportReport} disabled={loading || !data} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white shadow-sm hover:bg-primary-hover disabled:opacity-50"><Download size={16} /> Generate report</button>} />
       <div className="mt-8 grid gap-3 rounded-xl border border-primary/15 bg-surface p-3 shadow-sm sm:grid-cols-4">
         <label className="flex items-center gap-2 rounded-lg border border-primary/20 bg-background px-3 text-sm font-medium"><Clock3 size={16} className="text-primary" /><span className="sr-only">From date</span><input type="date" value={from} onChange={(event) => setFrom(event.target.value)} className="h-10 w-full bg-transparent outline-none" /></label>
         <label className="flex items-center gap-2 rounded-lg border border-primary/20 bg-background px-3 text-sm font-medium"><Clock3 size={16} className="text-primary" /><span className="sr-only">To date</span><input type="date" value={to} onChange={(event) => setTo(event.target.value)} className="h-10 w-full bg-transparent outline-none" /></label>
         <label className="flex items-center gap-2 rounded-lg border border-primary/20 bg-background px-3 text-sm font-medium"><Filter size={16} className="text-primary" /><span className="sr-only">Department</span><select value={departmentId} onChange={(event) => setDepartmentId(event.target.value)} className="h-10 w-full bg-transparent outline-none"><option value="">All departments</option>{data?.departments.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
         <label className="flex items-center gap-2 rounded-lg border border-primary/20 bg-background px-3 text-sm font-medium"><Stethoscope size={16} className="text-primary" /><span className="sr-only">Doctor</span><select value={doctorId} onChange={(event) => setDoctorId(event.target.value)} className="h-10 w-full bg-transparent outline-none"><option value="">All doctors</option>{data?.doctors.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
       </div>
-      {error && <div role="alert" className="mt-6 rounded-xl border border-error/20 bg-error-background p-4 text-sm text-error"><p>{error}</p><button type="button" onClick={() => void loadAnalytics()} className="mt-3 rounded-lg border border-error/30 px-3 py-2 font-semibold">Retry</button></div>}
+      {error && <div role="alert" className="mt-6 rounded-xl border border-error/20 bg-error-background p-4 text-sm text-error"><p>{error}</p><button type="button" disabled={loading} onClick={() => void refetch()} className="mt-3 rounded-lg border border-error/30 px-3 py-2 font-semibold disabled:opacity-50">{loading ? "Retrying..." : "Retry"}</button></div>}
       <section className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Key metrics">
         {metricCards.map(({ value, label, Icon }) => <article key={label} className="rounded-xl border border-primary/15 bg-surface p-5 shadow-sm"><span className="inline-flex rounded-lg bg-accent-surface p-2.5 text-primary"><Icon size={19} /></span><p className="mt-5 text-3xl font-bold">{value}</p><p className="mt-1 text-sm font-medium text-neutral-600">{label}</p></article>)}
       </section>
@@ -343,57 +330,21 @@ function AnalyticsPage() {
 function QueuePage() {
   const { user, role, loading: authLoading } = useAuth();
   const [selectedDepartment, setSelectedDepartment] = useState("All departments");
-  const [queue, setQueue] = useState<QueueEntry[]>([]);
-  const [departments, setDepartments] = useState<Department[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState("");
   const [actionError, setActionError] = useState("");
   const [calledPatient, setCalledPatient] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const api = useMemo(() => createStaffApi({
-    baseUrl: process.env.NEXT_PUBLIC_API_URL,
-    getToken: async () => {
-      const { data, error: sessionError } = await supabase.auth.getSession();
-      const session = data.session;
-      if (sessionError || !session || session.user.id !== user?.id) return null;
-      return session.access_token;
-    },
-    refreshToken: async () => {
-      const { data, error: refreshError } = await supabase.auth.refreshSession();
-      const session = data.session;
-      if (refreshError || !session || session.user.id !== user?.id) return null;
-      return session.access_token;
-    },
-  }), [user?.id]);
-
-  const loadQueue = useCallback(async (quiet = false) => {
-    if (!user || role !== "ADMIN") return;
-    if (!quiet) setLoading(true);
-    setRefreshing(true);
-    setError("");
-    try {
-      const [queueData, departmentData] = await Promise.all([
-        api("/queues"),
-        api("/departments"),
-      ]);
-      setQueue(Array.isArray(queueData) ? queueData as QueueEntry[] : []);
-      setDepartments(Array.isArray(departmentData) ? departmentData as Department[] : []);
-    } catch (cause) {
-      setError(cause instanceof StaffApiError ? cause.message : "Could not load the hospital queue. Please try again.");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [api, role, user]);
-
-  useEffect(() => {
-    if (authLoading || !user || role !== "ADMIN") return;
-    void loadQueue();
-    const interval = window.setInterval(() => void loadQueue(true), 15000);
-    return () => window.clearInterval(interval);
-  }, [authLoading, loadQueue, role, user]);
+  // Shared queue cache, kept fresh by Supabase Realtime events.
+  const {
+    data,
+    isPending: loading,
+    isFetching: refreshing,
+    error: queryError,
+    refetch,
+  } = useAdminQueues({ enabled: !authLoading && Boolean(user) && role === "ADMIN" });
+  const queue = data?.queue ?? [];
+  const departments = data?.departments ?? [];
+  const error = queryError ? adminError(queryError, "Could not load the hospital queue. Please try again.") : "";
 
   async function callNext() {
     if (busy) return;
@@ -401,10 +352,10 @@ function QueuePage() {
     setActionError("");
     setCalledPatient("");
     try {
-      const result = await api("/queues/call-next", { method: "POST" }) as QueueEntry["appointment"] | null;
+      const result = await staffApi("/queues/call-next", { method: "POST" }) as QueueEntry["appointment"] | null;
       const patient = result?.patient;
       setCalledPatient(patient ? `${patient.patientName} ${patient.patientSurname}`.trim() : "the next eligible patient");
-      await loadQueue(true);
+      await refetch();
     } catch (cause) {
       setActionError(cause instanceof StaffApiError ? cause.message : "Could not call the next patient. Please try again.");
     } finally {
@@ -428,12 +379,39 @@ function QueuePage() {
 
   return (
     <>
-      <PageHeading eyebrow="Live operations" title="Hospital queues" description="Monitor the current queue across departments. Queue actions remain under staff control." action={<button type="button" disabled={busy || loading} onClick={() => void callNext()} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white shadow-sm hover:bg-primary-hover disabled:opacity-50"><Activity size={16} /> {busy ? "Calling..." : "Call next patient"}</button>} />
+      <PageHeading title="Hospital queues" description="Monitor the current queue across departments. Queue actions remain under staff control." action={<button type="button" disabled={busy || loading} onClick={() => void callNext()} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white shadow-sm hover:bg-primary-hover disabled:opacity-50"><Activity size={16} /> {busy ? "Calling..." : "Call next patient"}</button>} />
       {calledPatient && <div role="status" className="mt-6 flex items-center justify-between rounded-xl border border-success/20 bg-success-background px-4 py-3 text-sm font-semibold text-success"><span>Called {calledPatient}.</span><button type="button" onClick={() => setCalledPatient("")} aria-label="Dismiss notification"><X size={16} /></button></div>}
       {actionError && <p role="alert" className="mt-6 rounded-xl border border-error/20 bg-error-background px-4 py-3 text-sm text-error">{actionError}</p>}
-      {error && <div role="alert" className="mt-6 rounded-xl border border-error/20 bg-error-background px-4 py-4 text-sm text-error"><p>{error}</p><button type="button" onClick={() => void loadQueue()} className="mt-3 rounded-lg border border-error/30 px-3 py-2 font-semibold">Retry</button></div>}
+      {error && <div role="alert" className="mt-6 rounded-xl border border-error/20 bg-error-background px-4 py-4 text-sm text-error"><p>{error}</p><button type="button" disabled={loading} onClick={() => void refetch()} className="mt-3 rounded-lg border border-error/30 px-3 py-2 font-semibold disabled:opacity-50">{loading ? "Retrying..." : "Retry"}</button></div>}
       <div className="mt-8 grid gap-4 sm:grid-cols-3"><div className="rounded-xl border border-primary/15 bg-surface p-5 shadow-sm"><p className="text-sm text-neutral-500">Waiting now</p><p className="mt-2 text-3xl font-bold">{loading ? "—" : waitingCount}</p></div><div className="rounded-xl border border-primary/15 bg-surface p-5 shadow-sm"><p className="text-sm text-neutral-500">In consultation</p><p className="mt-2 text-3xl font-bold">{loading ? "—" : consultationCount}</p></div><div className="rounded-xl border border-primary/15 bg-surface p-5 shadow-sm"><p className="text-sm text-neutral-500">Last refresh</p><p className="mt-2 text-lg font-bold">{refreshing ? "Refreshing..." : "Up to date"}</p></div></div>
-      <section className="mt-5 rounded-xl border border-primary/15 bg-surface p-5 shadow-sm"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="font-bold">Current queue</h2><select value={selectedDepartment} onChange={(event) => setSelectedDepartment(event.target.value)} className="h-10 rounded-lg border border-primary/25 bg-background px-3 text-sm"><option>All departments</option>{departments.map((department) => <option key={department.departmentId}>{department.name}</option>)}</select></div>{loading ? <p role="status" className="mt-6 text-sm text-neutral-500">Loading queue...</p> : visibleQueue.length === 0 ? <p className="mt-6 rounded-lg bg-background p-4 text-sm text-neutral-600">No patients are currently in this queue.</p> : <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[650px] text-left text-sm"><thead className="border-b border-primary/15 text-neutral-500"><tr><th className="px-3 py-3">Position</th><th className="px-3 py-3">Patient</th><th className="px-3 py-3">Department</th><th className="px-3 py-3">Status</th><th className="px-3 py-3">Checked in</th></tr></thead><tbody>{visibleQueue.map((entry) => { const patient = entry.appointment?.patient; const status = entry.appointment?.appointmentStatus ?? "UNKNOWN"; return <tr key={entry.queueId} className="border-b border-primary/10 last:border-0"><td className="px-3 py-4 font-bold text-primary">#{entry.position}</td><td className="px-3 py-4 font-semibold">{patient ? `${patient.patientName} ${patient.patientSurname}` : "Unknown patient"}</td><td className="px-3 py-4">{entry.department?.name ?? "Unknown department"}</td><td className="px-3 py-4"><span className={cx("rounded-full px-2.5 py-1 text-xs font-semibold", status === "INCONSULTATION" ? "bg-accent-surface text-primary" : "bg-background text-neutral-600")}>{status === "INCONSULTATION" ? "In consultation" : status === "CHECKEDIN" ? "Checked in" : "Waiting"}</span></td><td className="px-3 py-4">{entry.appointment?.checkInTime ? new Date(entry.appointment.checkInTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"}</td></tr>; })}</tbody></table></div>}</section>
+      <section className="mt-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="text-lg font-bold">Current queue</h2>
+          <select value={selectedDepartment} onChange={(event) => setSelectedDepartment(event.target.value)} className="h-10 rounded-lg border border-primary/25 bg-background px-3 text-sm">
+            <option>All departments</option>
+            {departments.map((department) => <option key={department.departmentId}>{department.name}</option>)}
+          </select>
+        </div>
+        {loading ? <p role="status" className="mt-6 text-sm text-neutral-500">Loading queue...</p>
+          : visibleQueue.length === 0 ? <p className="mt-6 rounded-lg bg-background p-4 text-sm text-neutral-600">No patients are currently in this queue.</p>
+          : <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {visibleQueue.map((entry) => {
+                const patient = entry.appointment?.patient;
+                return (
+                  <AppointmentCard
+                    key={entry.queueId}
+                    title={patient ? `${patient.patientName} ${patient.patientSurname}` : "Unknown patient"}
+                    subtitle={entry.department?.name ?? "Unknown department"}
+                    status={entry.appointment?.appointmentStatus ?? "UNKNOWN"}
+                    details={[
+                      { label: "Position", value: `#${entry.position}` },
+                      { label: "Checked in", value: entry.appointment?.checkInTime ? new Date(entry.appointment.checkInTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—" },
+                    ]}
+                  />
+                );
+              })}
+            </div>}
+      </section>
     </>
   );
 }
@@ -441,55 +419,28 @@ function QueuePage() {
 function StaffPage() {
   const { user, role, loading: authLoading } = useAuth();
   const [search, setSearch] = useState("");
-  const [staff, setStaff] = useState<AdminStaff[]>([]);
-  const [departments, setDepartments] = useState<Department[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [selectedRole, setSelectedRole] = useState("");
   const [selectedDepartmentId, setSelectedDepartmentId] = useState("");
   const [saved, setSaved] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState("");
+  const [saveError, setSaveError] = useState("");
   const [busy, setBusy] = useState(false);
-  const api = useMemo(() => createStaffApi({
-    baseUrl: process.env.NEXT_PUBLIC_API_URL,
-    getToken: async () => {
-      const { data, error: sessionError } = await supabase.auth.getSession();
-      const session = data.session;
-      if (sessionError || !session || session.user.id !== user?.id) return null;
-      return session.access_token;
-    },
-    refreshToken: async () => {
-      const { data, error: refreshError } = await supabase.auth.refreshSession();
-      const session = data.session;
-      if (refreshError || !session || session.user.id !== user?.id) return null;
-      return session.access_token;
-    },
-  }), [user?.id]);
+  const [busyAction, setBusyAction] = useState<"save" | "toggle" | null>(null);
 
-  const loadStaff = useCallback(async (quiet = false) => {
-    if (!user || role !== "ADMIN") return;
-    if (!quiet) setLoading(true);
-    setRefreshing(true);
-    setError("");
-    try {
-      const [staffData, departmentData] = await Promise.all([api("/staff"), api("/departments")]);
-      const nextStaff = Array.isArray(staffData) ? staffData as AdminStaff[] : [];
-      setStaff(nextStaff);
-      setDepartments(Array.isArray(departmentData) ? departmentData as Department[] : []);
-      setSelectedId((current) => current && nextStaff.some((member) => member.staffId === current) ? current : nextStaff[0]?.staffId ?? "");
-    } catch (cause) {
-      setError(cause instanceof StaffApiError ? cause.message : "Could not load staff accounts. Please try again.");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [api, role, user]);
+  const enabled = !authLoading && Boolean(user) && role === "ADMIN";
+  const {
+    data: staff = [],
+    isPending: loading,
+    isFetching: refreshing,
+    error: queryError,
+    refetch,
+  } = useStaffList<AdminStaff>({ enabled });
+  const { data: departments = [] } = useDepartments<Department[]>({ enabled });
+  const error = saveError || (queryError ? adminError(queryError, "Could not load staff accounts. Please try again.") : "");
 
   useEffect(() => {
-    if (authLoading || !user || role !== "ADMIN") return;
-    void loadStaff();
-  }, [authLoading, loadStaff, role, user]);
+    setSelectedId((current) => current && staff.some((member) => member.staffId === current) ? current : staff[0]?.staffId ?? "");
+  }, [staff]);
 
   const selected = staff.find((member) => member.staffId === selectedId) ?? null;
   useEffect(() => {
@@ -503,42 +454,46 @@ function StaffPage() {
     if (!selected || busy) return;
     const department = departments.find((item) => item.departmentId === selectedDepartmentId);
     if (!department) {
-      setError("Select a department before saving.");
+      setSaveError("Select a department before saving.");
       return;
     }
     setBusy(true);
+    setBusyAction("save");
     setSaved("");
-    setError("");
+    setSaveError("");
     try {
-      await api(`/staff/${selected.staffId}`, {
+      await staffApi(`/staff/${selected.staffId}`, {
         method: "PUT",
         body: JSON.stringify({ ...selected, staffRole: selectedRole, department }),
       });
       setSaved(`Changes saved for ${selected.firstName} ${selected.lastName}.`);
-      await loadStaff(true);
+      await refetch();
     } catch (cause) {
-      setError(cause instanceof StaffApiError ? cause.message : "Could not save this staff account.");
+      setSaveError(cause instanceof StaffApiError ? cause.message : "Could not save this staff account.");
     } finally {
       setBusy(false);
+      setBusyAction(null);
     }
   }
 
   async function toggleActive() {
     if (!selected || busy) return;
     setBusy(true);
+    setBusyAction("toggle");
     setSaved("");
-    setError("");
+    setSaveError("");
     try {
-      await api(`/staff/${selected.staffId}`, {
+      await staffApi(`/staff/${selected.staffId}`, {
         method: "PUT",
         body: JSON.stringify({ ...selected, active: !selected.active }),
       });
       setSaved(`${selected.firstName} ${selected.lastName} is now ${selected.active ? "deactivated" : "active"}.`);
-      await loadStaff(true);
+      await refetch();
     } catch (cause) {
-      setError(cause instanceof StaffApiError ? cause.message : "Could not change this account's status.");
+      setSaveError(cause instanceof StaffApiError ? cause.message : "Could not change this account's status.");
     } finally {
       setBusy(false);
+      setBusyAction(null);
     }
   }
 
@@ -547,12 +502,12 @@ function StaffPage() {
 
   return (
     <>
-      <PageHeading eyebrow="Access management" title="Staff accounts" description="Manage staff profiles, roles, department assignments and account status." action={<Link href="/admin/staff/register" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white shadow-sm hover:bg-primary-hover"><Plus size={16} /> Add account</Link>} />
-      {error && <div role="alert" className="mt-6 rounded-xl border border-error/20 bg-error-background p-4 text-sm text-error"><p>{error}</p><button type="button" onClick={() => void loadStaff()} className="mt-3 rounded-lg border border-error/30 px-3 py-2 font-semibold">Retry</button></div>}
+      <PageHeading title="Staff accounts" description="Manage staff profiles, roles, department assignments and account status." action={<Link href="/admin/staff/register" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white shadow-sm hover:bg-primary-hover"><Plus size={16} /> Add account</Link>} />
+      {error && <div role="alert" className="mt-6 rounded-xl border border-error/20 bg-error-background p-4 text-sm text-error"><p>{error}</p><button type="button" disabled={loading} onClick={() => void refetch()} className="mt-3 rounded-lg border border-error/30 px-3 py-2 font-semibold disabled:opacity-50">{loading ? "Retrying..." : "Retry"}</button></div>}
       {saved && <p role="status" className="mt-6 rounded-xl border border-success/20 bg-success-background p-4 text-sm font-semibold text-success">{saved}</p>}
       <div className="mt-8 grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
         <section className="rounded-xl border border-primary/15 bg-surface p-5 shadow-sm"><div className="relative"><Search size={17} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name, role or department" className="h-11 w-full rounded-lg border border-primary/25 bg-background pl-10 pr-3 text-sm outline-none focus:border-primary" /></div>{loading ? <p role="status" className="mt-6 text-sm text-neutral-500">Loading staff accounts...</p> : visibleStaff.length === 0 ? <p className="mt-6 rounded-lg bg-background p-4 text-sm text-neutral-600">No staff accounts match this search.</p> : <div className="mt-5 overflow-x-auto"><table className="w-full min-w-[560px] text-left text-sm"><thead className="border-b border-primary/15 text-neutral-500"><tr><th className="px-3 py-3">Staff member</th><th className="px-3 py-3">Role</th><th className="px-3 py-3">Department</th><th className="px-3 py-3">Status</th></tr></thead><tbody>{visibleStaff.map((member) => { const name = `${member.firstName} ${member.lastName}`.trim(); return <tr key={member.staffId} onClick={() => { setSelectedId(member.staffId); setSaved(""); }} className={cx("cursor-pointer border-b border-primary/10 last:border-0 hover:bg-background", selectedId === member.staffId && "bg-accent-surface/50")}><td className="px-3 py-4"><span className="inline-flex items-center gap-2 font-semibold"><span className="flex size-8 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">{`${member.firstName[0] ?? ""}${member.lastName[0] ?? ""}`}</span>{name}</span></td><td className="px-3 py-4">{member.staffRole}</td><td className="px-3 py-4">{member.department?.name ?? "Unassigned"}</td><td className="px-3 py-4"><StatusBadge active={Boolean(member.active)}>{member.active ? "Active" : "Deactivated"}</StatusBadge></td></tr>; })}</tbody></table></div>}</section>
-        <section className="rounded-xl border border-primary/15 bg-surface p-5 shadow-sm">{selected ? <><div className="flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.12em] text-primary">Edit profile</p><h2 className="mt-1 text-lg font-bold">{selected.firstName} {selected.lastName}</h2><p className="text-sm text-neutral-500">{selected.email}</p></div><Pencil size={18} className="text-neutral-500" /></div><div className="mt-6 space-y-4"><label className="block text-sm font-semibold">Role<select value={selectedRole} onChange={(event) => setSelectedRole(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-primary/25 bg-background px-3 font-normal"><option value="ADMIN">Admin</option><option value="DOCTOR">Doctor</option><option value="NURSE">Nurse</option><option value="RECEPTIONIST">Reception</option></select></label><label className="block text-sm font-semibold">Department<select value={selectedDepartmentId} onChange={(event) => setSelectedDepartmentId(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-primary/25 bg-background px-3 font-normal"><option value="">Select department</option>{departments.map((department) => <option key={department.departmentId} value={department.departmentId}>{department.name}</option>)}</select></label><div><p className="text-sm font-semibold">Weekly schedule</p><p className="mt-2 text-sm text-neutral-500">Schedule management will be connected when the staff schedule API is available.</p></div></div><div className="mt-7 flex gap-3"><button type="button" disabled={busy} onClick={() => void toggleActive()} className="min-h-10 flex-1 rounded-lg border border-error px-3 text-sm font-semibold text-error hover:bg-error-background disabled:opacity-50">{selected.active ? "Deactivate" : "Activate"}</button><button type="button" disabled={busy} onClick={() => void saveSelected()} className="min-h-10 flex-1 rounded-lg bg-primary px-3 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-50">{busy ? "Saving..." : "Save changes"}</button></div></> : <p className="text-sm text-neutral-600">Select a staff account to edit it.</p>}</section>
+        <section className="rounded-xl border border-primary/15 bg-surface p-5 shadow-sm">{selected ? <><div className="flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.12em] text-primary">Edit profile</p><h2 className="mt-1 text-lg font-bold">{selected.firstName} {selected.lastName}</h2><p className="text-sm text-neutral-500">{selected.email}</p></div><Pencil size={18} className="text-neutral-500" /></div><div className="mt-6 space-y-4"><label className="block text-sm font-semibold">Role<select value={selectedRole} onChange={(event) => setSelectedRole(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-primary/25 bg-background px-3 font-normal"><option value="ADMIN">Admin</option><option value="DOCTOR">Doctor</option><option value="NURSE">Nurse</option><option value="RECEPTIONIST">Reception</option></select></label><label className="block text-sm font-semibold">Department<select value={selectedDepartmentId} onChange={(event) => setSelectedDepartmentId(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-primary/25 bg-background px-3 font-normal"><option value="">Select department</option>{departments.map((department) => <option key={department.departmentId} value={department.departmentId}>{department.name}</option>)}</select></label><div><p className="text-sm font-semibold">Weekly schedule</p><p className="mt-2 text-sm text-neutral-500">Schedule management will be connected when the staff schedule API is available.</p></div></div><div className="mt-7 flex gap-3"><button type="button" disabled={busy} onClick={() => void toggleActive()} className="min-h-10 flex-1 rounded-lg border border-error px-3 text-sm font-semibold text-error hover:bg-error-background disabled:opacity-50">{busyAction === "toggle" ? "Working..." : selected.active ? "Deactivate" : "Activate"}</button><button type="button" disabled={busy} onClick={() => void saveSelected()} className="min-h-10 flex-1 rounded-lg bg-primary px-3 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-50">{busyAction === "save" ? "Saving..." : "Save changes"}</button></div></> : <p className="text-sm text-neutral-600">Select a staff account to edit it.</p>}</section>
       </div>
     </>
   );
@@ -560,50 +515,25 @@ function StaffPage() {
 
 function DepartmentsPage() {
   const { user, role, loading: authLoading } = useAuth();
-  const [departments, setDepartments] = useState<AdminDepartment[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [name, setName] = useState("");
   const [operatingHours, setOperatingHours] = useState("");
-  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [busyAction, setBusyAction] = useState<"save" | "delete" | null>(null);
+  const [saveError, setSaveError] = useState("");
   const [saved, setSaved] = useState("");
-  const api = useMemo(() => createStaffApi({
-    baseUrl: process.env.NEXT_PUBLIC_API_URL,
-    getToken: async () => {
-      const { data, error: sessionError } = await supabase.auth.getSession();
-      const session = data.session;
-      if (sessionError || !session || session.user.id !== user?.id) return null;
-      return session.access_token;
-    },
-    refreshToken: async () => {
-      const { data, error: refreshError } = await supabase.auth.refreshSession();
-      const session = data.session;
-      if (refreshError || !session || session.user.id !== user?.id) return null;
-      return session.access_token;
-    },
-  }), [user?.id]);
 
-  const loadDepartments = useCallback(async () => {
-    if (!user || role !== "ADMIN") return;
-    setLoading(true);
-    setError("");
-    try {
-      const data = await api("/departments");
-      const next = Array.isArray(data) ? data as AdminDepartment[] : [];
-      setDepartments(next);
-      setSelectedId((current) => current && next.some((item) => item.departmentId === current) ? current : next[0]?.departmentId ?? "");
-    } catch (cause) {
-      setError(cause instanceof StaffApiError ? cause.message : "Could not load departments. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  }, [api, role, user]);
+  const {
+    data: departments = [],
+    isPending: loading,
+    error: queryError,
+    refetch,
+  } = useDepartments<AdminDepartment[]>({ enabled: !authLoading && Boolean(user) && role === "ADMIN" });
+  const error = saveError || (queryError ? adminError(queryError, "Could not load departments. Please try again.") : "");
 
   useEffect(() => {
-    if (authLoading || !user || role !== "ADMIN") return;
-    void loadDepartments();
-  }, [authLoading, loadDepartments, role, user]);
+    setSelectedId((current) => current && departments.some((item) => item.departmentId === current) ? current : departments[0]?.departmentId ?? "");
+  }, [departments]);
 
   const selected = departments.find((item) => item.departmentId === selectedId) ?? null;
   useEffect(() => {
@@ -613,39 +543,43 @@ function DepartmentsPage() {
 
   async function saveDepartment() {
     if (!name.trim() || !operatingHours.trim() || busy) {
-      setError("Department name and operating hours are required.");
+      setSaveError("Department name and operating hours are required.");
       return;
     }
     setBusy(true);
-    setError("");
+    setBusyAction("save");
+    setSaveError("");
     setSaved("");
     try {
-      await api(selected ? `/departments/${selected.departmentId}` : "/departments", {
+      await staffApi(selected ? `/departments/${selected.departmentId}` : "/departments", {
         method: selected ? "PUT" : "POST",
         body: JSON.stringify({ ...(selected ?? {}), name: name.trim(), operatingHours: operatingHours.trim() }),
       });
       setSaved(selected ? "Department changes saved." : "Department created.");
-      await loadDepartments();
+      await refetch();
     } catch (cause) {
-      setError(cause instanceof StaffApiError ? cause.message : "Could not save the department.");
+      setSaveError(cause instanceof StaffApiError ? cause.message : "Could not save the department.");
     } finally {
       setBusy(false);
+      setBusyAction(null);
     }
   }
 
   async function deleteDepartment() {
     if (!selected || busy || !window.confirm(`Delete ${selected.name}?`)) return;
     setBusy(true);
-    setError("");
+    setBusyAction("delete");
+    setSaveError("");
     setSaved("");
     try {
-      await api(`/departments/${selected.departmentId}`, { method: "DELETE" });
+      await staffApi(`/departments/${selected.departmentId}`, { method: "DELETE" });
       setSaved("Department deleted.");
-      await loadDepartments();
+      await refetch();
     } catch (cause) {
-      setError(cause instanceof StaffApiError ? cause.message : "Could not delete the department.");
+      setSaveError(cause instanceof StaffApiError ? cause.message : "Could not delete the department.");
     } finally {
       setBusy(false);
+      setBusyAction(null);
     }
   }
 
@@ -654,12 +588,12 @@ function DepartmentsPage() {
 
   return (
     <>
-      <PageHeading eyebrow="Configuration" title="Departments" description="Manage hospital services and operating hours. Staff assignments are managed from staff accounts." action={<button type="button" onClick={() => { setSelectedId(""); setName(""); setOperatingHours(""); setSaved(""); }} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white hover:bg-primary-hover"><Plus size={16} /> Add department</button>} />
-      {error && <div role="alert" className="mt-6 rounded-xl border border-error/20 bg-error-background p-4 text-sm text-error"><p>{error}</p><button type="button" onClick={() => void loadDepartments()} className="mt-3 rounded-lg border border-error/30 px-3 py-2 font-semibold">Retry</button></div>}
+      <PageHeading title="Departments" description="Manage hospital services and operating hours. Staff assignments are managed from staff accounts." action={<button type="button" onClick={() => { setSelectedId(""); setName(""); setOperatingHours(""); setSaved(""); }} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white hover:bg-primary-hover"><Plus size={16} /> Add department</button>} />
+      {error && <div role="alert" className="mt-6 rounded-xl border border-error/20 bg-error-background p-4 text-sm text-error"><p>{error}</p><button type="button" disabled={loading} onClick={() => void refetch()} className="mt-3 rounded-lg border border-error/30 px-3 py-2 font-semibold disabled:opacity-50">{loading ? "Retrying..." : "Retry"}</button></div>}
       {saved && <p role="status" className="mt-6 rounded-xl border border-success/20 bg-success-background p-4 text-sm font-semibold text-success">{saved}</p>}
       <div className="mt-8 grid gap-5 xl:grid-cols-[1fr_0.9fr]">
         <section className="space-y-3">{loading ? <p role="status" className="rounded-xl border border-primary/15 bg-surface p-5 text-sm text-neutral-500">Loading departments...</p> : departments.length === 0 ? <p className="rounded-xl border border-primary/15 bg-surface p-5 text-sm text-neutral-600">No departments have been created.</p> : departments.map((item) => <button type="button" key={item.departmentId} onClick={() => { setSelectedId(item.departmentId); setSaved(""); }} className={cx("flex w-full items-center justify-between rounded-xl border p-4 text-left transition", selectedId === item.departmentId ? "border-primary bg-accent-surface/60 shadow-sm" : "border-primary/15 bg-surface hover:border-primary/35")}><div><p className="font-bold">{item.name}</p><p className="mt-1 text-sm text-neutral-600">{item.operatingHours}</p></div><LayoutDashboard size={19} className="text-neutral-500" /></button>)}</section>
-        <section className="rounded-xl border border-primary/15 bg-surface p-5 shadow-sm"><div className="flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.12em] text-primary">{selected ? "Edit department" : "New department"}</p><h2 className="mt-1 text-lg font-bold">{selected?.name ?? "Create department"}</h2></div><LayoutDashboard size={19} className="text-neutral-500" /></div><div className="mt-6 space-y-4"><label className="block text-sm font-semibold">Department name<input value={name} onChange={(event) => setName(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-primary/25 bg-background px-3 font-normal" /></label><label className="block text-sm font-semibold">Operating hours<input value={operatingHours} onChange={(event) => setOperatingHours(event.target.value)} placeholder="07:30 to 16:30" className="mt-1.5 h-11 w-full rounded-lg border border-primary/25 bg-background px-3 font-normal" /></label></div><div className="mt-7 flex gap-3"><button type="button" disabled={!selected || busy} onClick={() => void deleteDepartment()} className="min-h-10 rounded-lg border border-error px-4 text-sm font-semibold text-error hover:bg-error-background disabled:opacity-50">Delete</button><button type="button" disabled={busy} onClick={() => void saveDepartment()} className="min-h-10 flex-1 rounded-lg bg-primary px-4 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-50">{busy ? "Saving..." : selected ? "Save changes" : "Create department"}</button></div></section>
+        <section className="rounded-xl border border-primary/15 bg-surface p-5 shadow-sm"><div className="flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.12em] text-primary">{selected ? "Edit department" : "New department"}</p><h2 className="mt-1 text-lg font-bold">{selected?.name ?? "Create department"}</h2></div><LayoutDashboard size={19} className="text-neutral-500" /></div><div className="mt-6 space-y-4"><label className="block text-sm font-semibold">Department name<input value={name} onChange={(event) => setName(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-primary/25 bg-background px-3 font-normal" /></label><label className="block text-sm font-semibold">Operating hours<input value={operatingHours} onChange={(event) => setOperatingHours(event.target.value)} placeholder="07:30 to 16:30" className="mt-1.5 h-11 w-full rounded-lg border border-primary/25 bg-background px-3 font-normal" /></label></div><div className="mt-7 flex gap-3"><button type="button" disabled={!selected || busy} onClick={() => void deleteDepartment()} className="min-h-10 rounded-lg border border-error px-4 text-sm font-semibold text-error hover:bg-error-background disabled:opacity-50">{busyAction === "delete" ? "Deleting..." : "Delete"}</button><button type="button" disabled={busy} onClick={() => void saveDepartment()} className="min-h-10 flex-1 rounded-lg bg-primary px-4 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-50">{busyAction === "save" ? (selected ? "Saving..." : "Creating...") : selected ? "Save changes" : "Create department"}</button></div></section>
       </div>
     </>
   );
@@ -671,43 +605,14 @@ function AuditPage() {
   const [userFilter, setUserFilter] = useState("All users");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const [entries, setEntries] = useState<AuditEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const api = useMemo(() => createStaffApi({
-    baseUrl: process.env.NEXT_PUBLIC_API_URL,
-    getToken: async () => {
-      const { data, error: sessionError } = await supabase.auth.getSession();
-      const session = data.session;
-      if (sessionError || !session || session.user.id !== user?.id) return null;
-      return session.access_token;
-    },
-    refreshToken: async () => {
-      const { data, error: refreshError } = await supabase.auth.refreshSession();
-      const session = data.session;
-      if (refreshError || !session || session.user.id !== user?.id) return null;
-      return session.access_token;
-    },
-  }), [user?.id]);
 
-  const loadAudit = useCallback(async () => {
-    if (!user || role !== "ADMIN") return;
-    setLoading(true);
-    setError("");
-    try {
-      const data = await api("/audit-logs");
-      setEntries(Array.isArray(data) ? data as AuditEntry[] : []);
-    } catch (cause) {
-      setError(cause instanceof StaffApiError ? cause.message : "Could not load the audit log. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  }, [api, role, user]);
-
-  useEffect(() => {
-    if (authLoading || !user || role !== "ADMIN") return;
-    void loadAudit();
-  }, [authLoading, loadAudit, role, user]);
+  const {
+    data: entries = [],
+    isPending: loading,
+    error: queryError,
+    refetch,
+  } = useAuditLogs<AuditEntry>({ enabled: !authLoading && Boolean(user) && role === "ADMIN" });
+  const error = queryError ? adminError(queryError, "Could not load the audit log. Please try again.") : "";
 
   if (authLoading) return <p role="status" className="mt-8 rounded-xl border border-primary/15 bg-surface p-5">Verifying administrator access...</p>;
   if (!user || role !== "ADMIN") return <p role="alert" className="mt-8 rounded-xl border border-error/20 bg-error-background p-5 text-error">Only signed-in administrators can view the audit log.</p>;
@@ -744,8 +649,8 @@ function AuditPage() {
 
   return (
     <>
-      <PageHeading eyebrow="Accountability" title="Audit log" description="Review administrative and operational changes. Log entries are read-only." action={<button type="button" onClick={exportLog} disabled={loading || visibleEntries.length === 0} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-primary/25 px-4 text-sm font-semibold text-primary hover:bg-accent-surface disabled:opacity-50"><Download size={16} /> Export log</button>} />
-      {error && <div role="alert" className="mt-6 rounded-xl border border-error/20 bg-error-background p-4 text-sm text-error"><p>{error}</p><button type="button" onClick={() => void loadAudit()} className="mt-3 rounded-lg border border-error/30 px-3 py-2 font-semibold">Retry</button></div>}
+      <PageHeading title="Audit log" description="Review administrative and operational changes. Log entries are read-only." action={<button type="button" onClick={exportLog} disabled={loading || visibleEntries.length === 0} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-primary/25 px-4 text-sm font-semibold text-primary hover:bg-accent-surface disabled:opacity-50"><Download size={16} /> Export log</button>} />
+      {error && <div role="alert" className="mt-6 rounded-xl border border-error/20 bg-error-background p-4 text-sm text-error"><p>{error}</p><button type="button" disabled={loading} onClick={() => void refetch()} className="mt-3 rounded-lg border border-error/30 px-3 py-2 font-semibold disabled:opacity-50">{loading ? "Retrying..." : "Retry"}</button></div>}
       <section className="mt-8 rounded-xl border border-primary/15 bg-surface p-5 shadow-sm"><div className="grid gap-3 md:grid-cols-4"><label className="text-sm font-semibold">From<input type="date" value={from} onChange={(event) => setFrom(event.target.value)} className="mt-1.5 h-10 w-full rounded-lg border border-primary/25 bg-background px-3 text-sm font-normal" /></label><label className="text-sm font-semibold">To<input type="date" value={to} onChange={(event) => setTo(event.target.value)} className="mt-1.5 h-10 w-full rounded-lg border border-primary/25 bg-background px-3 text-sm font-normal" /></label><label className="text-sm font-semibold">Action<select value={action} onChange={(event) => setAction(event.target.value)} className="mt-1.5 h-10 w-full rounded-lg border border-primary/25 bg-background px-3 text-sm font-normal"><option>All actions</option>{actions.map((item) => <option key={item}>{item}</option>)}</select></label><label className="text-sm font-semibold">User<select value={userFilter} onChange={(event) => setUserFilter(event.target.value)} className="mt-1.5 h-10 w-full rounded-lg border border-primary/25 bg-background px-3 text-sm font-normal"><option>All users</option>{users.map((item) => <option key={item}>{item}</option>)}</select></label></div>{loading ? <p role="status" className="mt-6 text-sm text-neutral-500">Loading audit records...</p> : visibleEntries.length === 0 ? <p className="mt-6 rounded-lg bg-background p-4 text-sm text-neutral-600">No audit records match the selected filters.</p> : <div className="mt-6 overflow-x-auto"><table className="w-full min-w-[850px] text-left text-sm"><thead className="border-b border-primary/15 bg-background text-neutral-600"><tr><th className="px-3 py-3">Date and time</th><th className="px-3 py-3">Action</th><th className="px-3 py-3">Entity</th><th className="px-3 py-3">Done by</th><th className="px-3 py-3">Reason</th></tr></thead><tbody>{visibleEntries.map((entry) => <tr key={entry.logId} className="border-b border-primary/10 last:border-0"><td className="px-3 py-4 whitespace-nowrap">{entry.createdAt}</td><td className="px-3 py-4"><span className="inline-flex items-center gap-1 rounded-full bg-background px-2.5 py-1 text-xs font-semibold"><ShieldCheck size={13} />{entry.action}</span></td><td className="px-3 py-4 font-semibold">{entry.entityName} #{entry.entityId}</td><td className="px-3 py-4">{entry.staff ? `${entry.staff.firstName} ${entry.staff.lastName}`.trim() : "System"}</td><td className="px-3 py-4">{entry.reason ?? "—"}</td></tr>)}</tbody></table></div>}<p className="mt-5 flex items-center gap-2 text-sm text-neutral-500"><ShieldCheck size={16} /> Log entries are read-only and generated by the server.</p></section>
     </>
   );

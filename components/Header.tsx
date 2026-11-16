@@ -1,11 +1,14 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
-import { LogOut, Menu, Search, UserPlus, X } from "lucide-react";
+import { FormEvent, useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Loader2, LogOut, Menu, Search, UserPlus, X } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/context/AuthContext";
-import { supabase } from "@/lib/supabase";
-import { createStaffApi, StaffApiError } from "@/lib/staff";
+import { staffApi } from "@/lib/api-client";
+import { queryKeys } from "@/lib/query-keys";
+import { usePatients } from "@/lib/queries";
+import { StaffApiError } from "@/lib/staff";
 import SessionExpiredAction from "@/components/auth/SessionExpiredAction";
 
 import NotificationBell from "@/components/Notification/NotificationBell";
@@ -29,35 +32,43 @@ export default function Header({ onChanged }: { onChanged?: () => void }) {
   const [availabilityError, setAvailabilityError] = useState("");
   const [walkInQuery, setWalkInQuery] = useState("");
   const [walkInPatientId, setWalkInPatientId] = useState("");
-  const [patients, setPatients] = useState<WalkInPatient[]>([]);
-  const [patientsLoading, setPatientsLoading] = useState(false);
-  const [patientsError, setPatientsError] = useState("");
   const [walkInSaving, setWalkInSaving] = useState(false);
   const [walkInError, setWalkInError] = useState("");
   const [walkInDone, setWalkInDone] = useState("");
+  const [signingOut, setSigningOut] = useState(false);
 
   const { profile, user, signOut } = useAuth();
+  const queryClient = useQueryClient();
   const staffName = profile?.firstName && profile?.lastName
     ? `${profile.firstName} ${profile.lastName}`
     : profile?.email || user?.email || "Staff Member";
   const staffRoleLabel = profile?.staffRole || "STAFF";
-  const userId = user?.id ?? null;
 
-  const api = useMemo(() => createStaffApi({
-    baseUrl: process.env.NEXT_PUBLIC_API_URL,
-    getToken: async () => {
-      const { data, error } = await supabase.auth.getSession();
-      return !error && data.session?.user.id === userId ? data.session.access_token : null;
-    },
-    refreshToken: async () => {
-      const { data, error } = await supabase.auth.refreshSession();
-      return !error && data.session?.user.id === userId ? data.session.access_token : null;
-    },
-  }), [userId]);
+  // Registered patients are cached and shared; only fetched when the dialog opens.
+  const {
+    data: patientData = [],
+    isPending: patientsLoading,
+    error: patientsErrorCause,
+    refetch: reloadPatients,
+  } = usePatients({ enabled: walkInFormOpen });
+  const patients = patientData as WalkInPatient[];
+  const patientsError = patientsErrorCause
+    ? patientsErrorCause instanceof StaffApiError ? patientsErrorCause.message : "Could not load registered patients."
+    : "";
 
   useEffect(() => {
     setAvailable(String(profile?.availabilityStatus ?? "").toUpperCase() === "AVAILABLE");
   }, [profile?.availabilityStatus]);
+
+  async function handleSignOut() {
+    if (signingOut) return;
+    setSigningOut(true);
+    try {
+      await signOut();
+    } finally {
+      setSigningOut(false);
+    }
+  }
 
   async function handleAvailability(next: boolean) {
     if (availabilitySaving) return;
@@ -66,10 +77,11 @@ export default function Header({ onChanged }: { onChanged?: () => void }) {
     setAvailabilitySaving(true);
     setAvailabilityError("");
     try {
-      await api("/staff/me/availability", {
+      await staffApi("/staff/me/availability", {
         method: "PATCH",
         body: JSON.stringify({ status: next ? "AVAILABLE" : "UNAVAILABLE" }),
       });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.staffDashboard });
       onChanged?.();
     } catch (cause) {
       setAvailable(previous);
@@ -79,21 +91,12 @@ export default function Header({ onChanged }: { onChanged?: () => void }) {
     }
   }
 
-  async function openWalkInForm() {
+  function openWalkInForm() {
     setWalkInFormOpen(true);
     setMenuOpen(false);
     setWalkInDone("");
     setWalkInError("");
-    setPatientsLoading(true);
-    setPatientsError("");
-    try {
-      const data = await api("/patients");
-      setPatients(Array.isArray(data) ? data as WalkInPatient[] : []);
-    } catch (cause) {
-      setPatientsError(cause instanceof StaffApiError ? cause.message : "Could not load registered patients.");
-    } finally {
-      setPatientsLoading(false);
-    }
+    void reloadPatients();
   }
 
   function closeWalkInForm() {
@@ -101,7 +104,6 @@ export default function Header({ onChanged }: { onChanged?: () => void }) {
     setWalkInQuery("");
     setWalkInPatientId("");
     setWalkInError("");
-    setPatientsError("");
   }
 
   async function handleWalkInSubmit(event: FormEvent<HTMLFormElement>) {
@@ -119,12 +121,13 @@ export default function Header({ onChanged }: { onChanged?: () => void }) {
     setWalkInError("");
     setWalkInDone("");
     try {
-      const created = await api("/appointments/walk-in", {
+      const created = await staffApi("/appointments/walk-in", {
         method: "POST",
         body: JSON.stringify({ patientId: walkInPatientId, departmentId: profile.departmentId }),
       }) as { appointmentId?: string } | null;
       setWalkInDone(created?.appointmentId ? `Walk-in registered and queued (ID ${created.appointmentId}).` : "Walk-in registered and queued.");
       setWalkInPatientId("");
+      await queryClient.invalidateQueries({ queryKey: queryKeys.staffDashboard });
       onChanged?.();
     } catch (cause) {
       setWalkInError(cause instanceof StaffApiError ? cause.message : "Could not register the walk-in. Please try again.");
@@ -194,12 +197,13 @@ export default function Header({ onChanged }: { onChanged?: () => void }) {
 
             <button
               type="button"
-              onClick={() => signOut()}
-              className="flex min-h-10 items-center gap-1.5 rounded-lg border border-primary/25 px-3 text-sm font-semibold text-neutral-700 transition hover:bg-accent-surface hover:text-primary"
+              onClick={() => void handleSignOut()}
+              disabled={signingOut}
+              className="flex min-h-10 items-center gap-1.5 rounded-lg border border-primary/25 px-3 text-sm font-semibold text-neutral-700 transition hover:bg-accent-surface hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
               title="Sign out"
             >
-              <LogOut size={16} aria-hidden="true" />
-              <span>Sign out</span>
+              {signingOut ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <LogOut size={16} aria-hidden="true" />}
+              <span>{signingOut ? "Signing out..." : "Sign out"}</span>
             </button>
           </div>
 
@@ -245,12 +249,13 @@ export default function Header({ onChanged }: { onChanged?: () => void }) {
               type="button"
               onClick={() => {
                 setMenuOpen(false);
-                signOut();
+                void handleSignOut();
               }}
-              className="flex w-full min-h-10 items-center justify-center gap-2 rounded-lg border border-red-200 text-sm font-semibold text-red-600 transition hover:bg-red-50"
+              disabled={signingOut}
+              className="flex w-full min-h-10 items-center justify-center gap-2 rounded-lg border border-red-200 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <LogOut size={16} aria-hidden="true" />
-              <span>Sign out</span>
+              {signingOut ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <LogOut size={16} aria-hidden="true" />}
+              <span>{signingOut ? "Signing out..." : "Sign out"}</span>
             </button>
           </div>
         )}

@@ -2,61 +2,27 @@
 
 import React, { useEffect, useState } from "react";
 import { CheckCircle2, Loader2, QrCode, X } from "lucide-react";
-import { supabase } from "@/lib/supabase";
-import { useAuth } from "@/context/AuthContext";
+import { useCheckInQr } from "@/lib/queries";
 
 /**
- * Fetches the check-in QR image for an appointment with the caller's bearer token
- * and shows it in a modal. The QR encodes a link to /check-in?id=<appointmentId>.
+ * Fetches the check-in QR image for an appointment through the shared query
+ * cache and shows it in a modal. The QR encodes a link to /check-in?id=<id>.
  */
 export default function CheckInQr({ appointmentId }: { appointmentId: string }) {
-  const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [src, setSrc] = useState<string | null>(null);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const { data: blob, isPending: loading, error, refetch } = useCheckInQr(appointmentId, open);
 
+  // Turn the cached blob into an object URL, revoking it when it changes/closes.
   useEffect(() => {
-    if (!open) return;
-    const controller = new AbortController();
-    let objectUrl: string | null = null;
-    setLoading(true);
-    setError("");
-    setSrc(null);
-    (async () => {
-      try {
-        const { data, error: sessionError } = await supabase.auth.getSession();
-        const token = sessionError ? null : data.session?.access_token ?? null;
-        if (!token) throw new Error("Your session has expired. Please sign in again.");
-        const base = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
-        const response = await fetch(`${base}/api/appointments/${appointmentId}/qr`, {
-          cache: "no-store",
-          headers: { Authorization: `Bearer ${token}` },
-          signal: controller.signal,
-        });
-        if (!response.ok) {
-          const data = await response.json().catch(() => null);
-          throw new Error(typeof data?.message === "string" && data.message.trim()
-            ? data.message
-            : "The QR code could not be loaded.");
-        }
-        const blob = await response.blob();
-        if (controller.signal.aborted) return;
-        objectUrl = URL.createObjectURL(blob);
-        setSrc(objectUrl);
-      } catch (cause) {
-        if (!controller.signal.aborted) {
-          setError(cause instanceof Error ? cause.message : "The QR code could not be loaded.");
-        }
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
-      }
-    })();
-    return () => {
-      controller.abort();
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [open, appointmentId, user?.id]);
+    if (!blob) {
+      setSrc(null);
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    setSrc(url);
+    return () => URL.revokeObjectURL(url);
+  }, [blob]);
 
   return (
     <>
@@ -92,7 +58,8 @@ export default function CheckInQr({ appointmentId }: { appointmentId: string }) 
               {loading && <Loader2 className="animate-spin text-primary" size={36} aria-label="Loading QR" />}
               {error && (
                 <div role="alert" className="text-sm text-error">
-                  <p>{error}</p>
+                  <p>{error instanceof Error ? error.message : "The QR code could not be loaded."}</p>
+                  <button type="button" onClick={() => void refetch()} className="mt-2 min-h-9 text-primary underline">Retry</button>
                   <button type="button" onClick={() => setOpen(false)} className="mt-2 min-h-9 text-primary underline">Close</button>
                 </div>
               )}

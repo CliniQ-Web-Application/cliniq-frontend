@@ -27,7 +27,6 @@ export interface PatientProfileInput {
 
 export interface PatientProfile extends PatientProfileInput {
   patientID: string;
-  authUserId: string;
   patientEmail: string;
 }
 
