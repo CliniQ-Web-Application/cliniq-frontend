@@ -41,6 +41,12 @@ export interface BookingConfirmation {
   departmentName: string | null;
   doctorName: string;
   bookedAt: string;
+
+  // i am connecting from backend dto bookin
+  checkInTime?: string | null;
+  calledTime?: string | null;
+  completedTime?: string | null;
+  priority?: string | null;
 }
 
 // The server filters future times in the clinic timezone, not the browser timezone.
@@ -83,9 +89,11 @@ export function bookingBody(slotId: string, appointmentTime?: string): { slotId:
 
 export function parseBookingConfirmation(value: unknown): BookingConfirmation {
   const fields = ["appointmentId", "appointmentStatus", "slotId", "slotDate", "startTime", "endTime", "doctorName", "bookedAt"];
+
   if (!value || typeof value !== "object" || fields.some((key) =>
     typeof (value as Record<string, unknown>)[key] !== "string" || !(value as Record<string, unknown>)[key]
   )) throw new Error("The clinic returned an unexpected booking response. Check your appointments before booking again.");
+
   const department = (value as Record<string, unknown>).departmentName;
   if (department !== null && (typeof department !== "string" || !department)) {
     throw new Error("The clinic returned an unexpected booking response. Check your appointments before booking again.");
