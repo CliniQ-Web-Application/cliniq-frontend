@@ -111,6 +111,14 @@ function StaffPortalInner({ user }: { user: User }) {
     runAction("call-next", () => staffApi("/queues/call-next", { method: "POST" }), "Could not call the next patient. Please try again.");
   const markUrgent = (entry: QueueEntry) =>
     runAction(`urgent-${entry.queueId}`, () => staffApi(`/queues/${entry.queueId}/prioritise`, { method: "POST", body: JSON.stringify({ reason: "Marked urgent by staff" }) }), "Could not flag the queue entry as urgent.");
+  const markNoShow = (appointmentId: string) => {
+    if (!window.confirm("Are you sure you want to mark this patient as a No-Show?")) return;
+    return runAction(
+        `noshow-${appointmentId}`,
+        () => staffApi(`/appointments/${appointmentId}/no-show`, { method: "POST" }),
+        "Could not mark the patient as a no-show."
+    );
+  };
 
   async function createSlot(event: React.SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -328,6 +336,9 @@ function StaffPortalInner({ user }: { user: User }) {
                             <Zap size={13} aria-hidden="true" /> {busyKey === `urgent-${entry.queueId}` ? "Marking..." : "Mark urgent"}
                           </button>
                         )}
+                      <button type="button" disabled={Boolean(busyKey)} onClick={() => void markNoShow(entry.appointment.appointmentId)} className="min-h-9 rounded-lg border border-neutral-300 px-3 text-xs font-semibold text-neutral-600 hover:bg-neutral-100 disabled:opacity-50">
+                        {busyKey === `noshow-${entry.appointment.appointmentId}` ? "Saving..." : "No-Show"}
+                      </button>
                     </div>
                   }
                 />
