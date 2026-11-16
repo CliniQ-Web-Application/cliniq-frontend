@@ -5,6 +5,8 @@ import { stripTypeScriptTypes } from "node:module";
 import { Script } from "node:vm";
 import { appointmentIdFromQr, checkInQrPayload } from "../lib/check-in-qr.ts";
 import { hasActiveQueue, readQueue } from "../lib/queue.ts";
+import { departmentAvailabilitySummary, doctorAvailabilityPresentation } from "../lib/availability.ts";
+import { broadcastRecipientCount, broadcastSchedules, scheduleBroadcastBody } from "../lib/schedule-broadcast.ts";
 import {
   availableBookingSlots, localDateValue, bookingBody, patientProfileBody,
   parseBookingConfirmation, BookingRequestError, createBookingApi, slotCapacityLabel,
@@ -46,6 +48,61 @@ const json = (body, status = 200) => new Response(JSON.stringify(body), { status
 const makeApi = (fetcher, overrides = {}) => createBookingApi({
   baseUrl: "https://clinic.example/", getToken: async () => "test-token",
   refreshToken: async () => "refreshed-token", fetcher, ...overrides,
+});
+
+test("doctor availability labels match the backend enum and tolerate unknown status", () => {
+  for (const [status, label] of Object.entries({ AVAILABLE: "In office", ONCALL: "On call", EMERGENCY: "Emergency", UNAVAILABLE: "Unavailable" })) {
+    assert.equal(doctorAvailabilityPresentation(status).label, label);
+    assert.ok(doctorAvailabilityPresentation(status).className);
+  }
+  for (const status of [undefined, null, "NEW_STATUS"]) assert.equal(doctorAvailabilityPresentation(status).label, "Status unknown");
+});
+
+test("department availability counts unique doctors rather than each open window", () => {
+  const doctors = [
+    { staffId: "doctor-1", availabilityStatus: "AVAILABLE" },
+    { staffId: "doctor-1", availabilityStatus: "AVAILABLE" },
+    { staffId: "doctor-2", availabilityStatus: "ONCALL" },
+    { staffId: "doctor-3", availabilityStatus: "UNAVAILABLE" },
+  ];
+  assert.equal(departmentAvailabilitySummary(doctors), "1 in office · 1 on call · 1 unavailable");
+  assert.equal(departmentAvailabilitySummary([]), "No doctors with bookable windows");
+});
+
+test("current doctor status is informational and does not hide future booking windows", () => {
+  for (const availabilityStatus of ["AVAILABLE", "ONCALL", "EMERGENCY", "UNAVAILABLE", null]) {
+    const candidate = { ...slot, staff: { ...slot.staff, availabilityStatus } };
+    assert.deepEqual(availableBookingSlots([candidate]), [candidate]);
+  }
+});
+
+test("schedule broadcasts validate delay minutes and omit them for absence notices", () => {
+  assert.deepEqual(scheduleBroadcastBody({ type: "DELAY", message: " Traffic delay ", delayMinutes: "20" }), { type: "DELAY", message: "Traffic delay", delayMinutes: 20 });
+  assert.deepEqual(scheduleBroadcastBody({ type: "ABSENCE", message: " Please contact reception ", delayMinutes: "20" }), { type: "ABSENCE", message: "Please contact reception" });
+  for (const delayMinutes of ["", " ", "0", "-1", "1.5", "1441", "bad"]) {
+    assert.throws(() => scheduleBroadcastBody({ type: "DELAY", message: "Delay", delayMinutes }), /whole minutes/);
+  }
+  for (const message of ["", " ", "x".repeat(501)]) {
+    assert.throws(() => scheduleBroadcastBody({ type: "ABSENCE", message, delayMinutes: "" }), /1–500/);
+  }
+});
+
+test("broadcast windows include full and older clinics without relying on the browser date", () => {
+  const full = { ...slot, slotId: "full", slotStatus: "BOOKED" };
+  const earlier = { ...slot, slotId: "today", slotDate: today };
+  const blocked = { ...slot, slotId: "blocked", slotStatus: "BLOCKED", slotDate: "2026-10-25" };
+  const input = [full, { ...slot, staff: { ...slot.staff, staffId: "another-doctor" } },
+    { ...slot, slotId: "older", slotDate: "2026-10-22" }, blocked, earlier];
+  assert.deepEqual(broadcastSchedules(input, "doctor-1").map((item) => item.slotId), ["blocked", "full", "today", "older"]);
+  assert.equal(input[0], full);
+});
+
+test("broadcast success counts accept zero and reject malformed responses", () => {
+  assert.equal(broadcastRecipientCount({ recipientCount: 0 }), 0);
+  assert.equal(broadcastRecipientCount({ recipientCount: 3 }), 3);
+  for (const value of [null, {}, { recipientCount: -1 }, { recipientCount: 1.5 }, { recipientCount: "3" }]) {
+    assert.throws(() => broadcastRecipientCount(value), /avoid duplicate notices/);
+  }
 });
 
 test("lists open schedules for active doctors with departments", () => {

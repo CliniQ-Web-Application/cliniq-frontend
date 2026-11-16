@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test scripts/booking.test.mjs scripts/bootstrap-admin.test.mjs",
+    "test": "node --test scripts/booking.test.mjs scripts/bootstrap-admin.test.mjs scripts/admin-management.test.mjs",
     "setup:admin": "node --env-file=.env.local scripts/bootstrap-admin.mjs",
     "setup:staff": "node --env-file=.env.local scripts/bootstrap-staff.mjs"
   },

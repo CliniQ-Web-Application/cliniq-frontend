@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import AdminSchedules from "./AdminSchedules";
+import AdminAppointments from "./AdminAppointments";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
@@ -27,7 +29,7 @@ import {
   X,
 } from "lucide-react";
 
-export type AdminPage = "analytics" | "queues" | "staff" | "departments" | "audit";
+export type AdminPage = "analytics" | "queues" | "staff" | "departments" | "audit" | "schedules" | "appointments";
 
 type AdminStaff = {
   staffId: string;
@@ -73,6 +75,8 @@ const navigation: { label: string; href: string; page: AdminPage; icon: typeof B
   { label: "Analytics", href: "/admin", page: "analytics", icon: BarChart3 },
   { label: "Queues", href: "/admin/queues", page: "queues", icon: Activity },
   { label: "Staff", href: "/admin/staff", page: "staff", icon: Users },
+  { label: "Schedules", href: "/admin/schedules", page: "schedules", icon: Clock3 },
+  { label: "Appointments", href: "/admin/appointments", page: "appointments", icon: Stethoscope },
   { label: "Departments", href: "/admin/departments", page: "departments", icon: LayoutDashboard },
   { label: "Audit log", href: "/admin/audit-log", page: "audit", icon: FileText },
 ];
@@ -103,17 +107,17 @@ function AdminHeader({ activePage }: { activePage: AdminPage }) {
 
   return (
     <header className="sticky top-0 z-30 border-b border-primary/15 bg-surface/95 shadow-sm backdrop-blur">
-      <div className="mx-auto flex min-h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto flex min-h-16 max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
         <Link href="/admin" className="shrink-0 text-lg font-bold text-primary no-underline">
           CliniQ <span className="hidden font-normal text-neutral-500 sm:inline">| Admin portal</span>
         </Link>
-        <nav className="hidden items-center gap-1 lg:flex" aria-label="Admin navigation">
+        <nav className="order-last hidden w-full items-center gap-1 overflow-x-auto xl:flex" aria-label="Admin navigation">
           {navigation.map(({ label, href, page, icon: Icon }) => (
             <Link
               key={page}
               href={href}
               className={cx(
-                "inline-flex min-h-10 items-center gap-2 rounded-lg px-3 text-sm font-semibold no-underline transition",
+                "inline-flex min-h-10 shrink-0 items-center gap-2 rounded-lg px-3 text-sm font-semibold no-underline transition",
                 activePage === page ? "bg-accent-surface text-primary" : "text-neutral-600 hover:bg-background hover:text-primary",
               )}
             >
@@ -134,13 +138,13 @@ function AdminHeader({ activePage }: { activePage: AdminPage }) {
             <LogOut size={16} />
             Logout
           </button>
-          <button type="button" onClick={() => setMenuOpen((open) => !open)} className="rounded-lg p-2 lg:hidden" aria-label="Toggle admin navigation">
+          <button type="button" onClick={() => setMenuOpen((open) => !open)} className="rounded-lg p-2 xl:hidden" aria-label="Toggle admin navigation">
             {menuOpen ? <X size={22} /> : <Menu size={22} />}
           </button>
         </div>
       </div>
       {menuOpen && (
-        <nav className="border-t border-primary/15 bg-surface px-4 py-3 lg:hidden" aria-label="Admin mobile navigation">
+        <nav className="border-t border-primary/15 bg-surface px-4 py-3 xl:hidden" aria-label="Admin mobile navigation">
           <div className="grid gap-1 sm:grid-cols-2">
             {navigation.map(({ label, href, page, icon: Icon }) => (
               <Link key={page} href={href} onClick={() => setMenuOpen(false)} className={cx("flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold no-underline", activePage === page ? "bg-accent-surface text-primary" : "text-neutral-700")}>
@@ -552,7 +556,7 @@ function StaffPage() {
       {saved && <p role="status" className="mt-6 rounded-xl border border-success/20 bg-success-background p-4 text-sm font-semibold text-success">{saved}</p>}
       <div className="mt-8 grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
         <section className="rounded-xl border border-primary/15 bg-surface p-5 shadow-sm"><div className="relative"><Search size={17} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name, role or department" className="h-11 w-full rounded-lg border border-primary/25 bg-background pl-10 pr-3 text-sm outline-none focus:border-primary" /></div>{loading ? <p role="status" className="mt-6 text-sm text-neutral-500">Loading staff accounts...</p> : visibleStaff.length === 0 ? <p className="mt-6 rounded-lg bg-background p-4 text-sm text-neutral-600">No staff accounts match this search.</p> : <div className="mt-5 overflow-x-auto"><table className="w-full min-w-[560px] text-left text-sm"><thead className="border-b border-primary/15 text-neutral-500"><tr><th className="px-3 py-3">Staff member</th><th className="px-3 py-3">Role</th><th className="px-3 py-3">Department</th><th className="px-3 py-3">Status</th></tr></thead><tbody>{visibleStaff.map((member) => { const name = `${member.firstName} ${member.lastName}`.trim(); return <tr key={member.staffId} onClick={() => { setSelectedId(member.staffId); setSaved(""); }} className={cx("cursor-pointer border-b border-primary/10 last:border-0 hover:bg-background", selectedId === member.staffId && "bg-accent-surface/50")}><td className="px-3 py-4"><span className="inline-flex items-center gap-2 font-semibold"><span className="flex size-8 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">{`${member.firstName[0] ?? ""}${member.lastName[0] ?? ""}`}</span>{name}</span></td><td className="px-3 py-4">{member.staffRole}</td><td className="px-3 py-4">{member.department?.name ?? "Unassigned"}</td><td className="px-3 py-4"><StatusBadge active={Boolean(member.active)}>{member.active ? "Active" : "Deactivated"}</StatusBadge></td></tr>; })}</tbody></table></div>}</section>
-        <section className="rounded-xl border border-primary/15 bg-surface p-5 shadow-sm">{selected ? <><div className="flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.12em] text-primary">Edit profile</p><h2 className="mt-1 text-lg font-bold">{selected.firstName} {selected.lastName}</h2><p className="text-sm text-neutral-500">{selected.email}</p></div><Pencil size={18} className="text-neutral-500" /></div><div className="mt-6 space-y-4"><label className="block text-sm font-semibold">Role<select value={selectedRole} onChange={(event) => setSelectedRole(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-primary/25 bg-background px-3 font-normal"><option value="ADMIN">Admin</option><option value="DOCTOR">Doctor</option><option value="NURSE">Nurse</option><option value="RECEPTIONIST">Reception</option></select></label><label className="block text-sm font-semibold">Department<select value={selectedDepartmentId} onChange={(event) => setSelectedDepartmentId(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-primary/25 bg-background px-3 font-normal"><option value="">Select department</option>{departments.map((department) => <option key={department.departmentId} value={department.departmentId}>{department.name}</option>)}</select></label><div><p className="text-sm font-semibold">Weekly schedule</p><p className="mt-2 text-sm text-neutral-500">Schedule management will be connected when the staff schedule API is available.</p></div></div><div className="mt-7 flex gap-3"><button type="button" disabled={busy} onClick={() => void toggleActive()} className="min-h-10 flex-1 rounded-lg border border-error px-3 text-sm font-semibold text-error hover:bg-error-background disabled:opacity-50">{selected.active ? "Deactivate" : "Activate"}</button><button type="button" disabled={busy} onClick={() => void saveSelected()} className="min-h-10 flex-1 rounded-lg bg-primary px-3 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-50">{busy ? "Saving..." : "Save changes"}</button></div></> : <p className="text-sm text-neutral-600">Select a staff account to edit it.</p>}</section>
+        <section className="rounded-xl border border-primary/15 bg-surface p-5 shadow-sm">{selected ? <><div className="flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.12em] text-primary">Edit profile</p><h2 className="mt-1 text-lg font-bold">{selected.firstName} {selected.lastName}</h2><p className="text-sm text-neutral-500">{selected.email}</p></div><Pencil size={18} className="text-neutral-500" /></div><div className="mt-6 space-y-4"><label className="block text-sm font-semibold">Role<select value={selectedRole} onChange={(event) => setSelectedRole(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-primary/25 bg-background px-3 font-normal"><option value="ADMIN">Admin</option><option value="DOCTOR">Doctor</option><option value="NURSE">Nurse</option><option value="RECEPTIONIST">Reception</option></select></label><label className="block text-sm font-semibold">Department<select value={selectedDepartmentId} onChange={(event) => setSelectedDepartmentId(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-primary/25 bg-background px-3 font-normal"><option value="">Select department</option>{departments.map((department) => <option key={department.departmentId} value={department.departmentId}>{department.name}</option>)}</select></label><div><p className="text-sm font-semibold">Doctor schedules</p><Link href="/admin/schedules" className="mt-2 inline-block text-sm font-semibold text-primary underline">Manage doctor schedules and capacity</Link></div></div><div className="mt-7 flex gap-3"><button type="button" disabled={busy} onClick={() => void toggleActive()} className="min-h-10 flex-1 rounded-lg border border-error px-3 text-sm font-semibold text-error hover:bg-error-background disabled:opacity-50">{selected.active ? "Deactivate" : "Activate"}</button><button type="button" disabled={busy} onClick={() => void saveSelected()} className="min-h-10 flex-1 rounded-lg bg-primary px-3 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-50">{busy ? "Saving..." : "Save changes"}</button></div></> : <p className="text-sm text-neutral-600">Select a staff account to edit it.</p>}</section>
       </div>
     </>
   );
@@ -760,6 +764,8 @@ export default function AdminShell({ activePage, children }: { activePage: Admin
           {activePage === "analytics" && <AnalyticsPage />}
           {activePage === "queues" && <QueuePage />}
           {activePage === "staff" && <StaffPage />}
+          {activePage === "schedules" && <AdminSchedules />}
+          {activePage === "appointments" && <AdminAppointments />}
           {activePage === "departments" && <DepartmentsPage />}
           {activePage === "audit" && <AuditPage />}
         </>}
