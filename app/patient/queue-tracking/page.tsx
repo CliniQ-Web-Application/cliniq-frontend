@@ -8,30 +8,9 @@ import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { BookingRequestError, createBookingApi, parseBookingConfirmation, type BookingConfirmation } from "@/lib/booking";
 import { appointmentStatusPresentation } from "@/lib/appointment-status";
+import { hasActiveQueue, readQueue, type QueueSnapshot } from "@/lib/queue";
 import SessionExpiredAction from "@/components/auth/SessionExpiredAction";
 
-type QueueSnapshot = {
-  appointmentId: string;
-  queuePosition: number | null;
-  queueStatus: string;
-  estimatedProgress: string | number | null;
-  error: string;
-};
-
-function readQueue(value: unknown, booking: BookingConfirmation): QueueSnapshot {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("The clinic returned an unexpected queue response.");
-  const data = value as Record<string, unknown>;
-  const rawPosition = data.queuePosition ?? data.position;
-  const rawStatus = data.queueStatus ?? data.appointmentStatus ?? data.status ?? booking.appointmentStatus;
-  const progress = data.estimatedProgress ?? data.estimatedWaitMinutes ?? data.estimatedWaitTime ?? data.estimatedWait ?? null;
-  return {
-    appointmentId: booking.appointmentId,
-    queuePosition: typeof rawPosition === "number" && Number.isFinite(rawPosition) && rawPosition > 0 ? rawPosition : null,
-    queueStatus: typeof rawStatus === "string" ? rawStatus.toUpperCase() : booking.appointmentStatus.toUpperCase(),
-    estimatedProgress: typeof progress === "string" || typeof progress === "number" ? progress : null,
-    error: "",
-  };
-}
 
 function friendlyError(cause: unknown) {
   if (cause instanceof BookingRequestError && cause.status === 401) return "Your session expired. Sign in again to view your queue.";
@@ -77,11 +56,12 @@ function QueueTracking({ user }: { user: User }) {
       if (signal?.aborted) return;
       setBookings(list);
       const snapshots = await Promise.all(list.map(async (booking) => {
+        if (!hasActiveQueue(booking.appointmentStatus)) return readQueue({}, booking);
         try {
           const data = await api(`/appointments/${encodeURIComponent(booking.appointmentId)}/queue-position`, { signal });
           return readQueue(data, booking);
         } catch (cause) {
-          return { appointmentId: booking.appointmentId, queuePosition: null, queueStatus: booking.appointmentStatus.toUpperCase(), estimatedProgress: null, error: friendlyError(cause) };
+          return { appointmentId: booking.appointmentId, queuePosition: null, queueStatus: booking.appointmentStatus.toUpperCase(), estimatedWaitMinutes: null, error: friendlyError(cause) };
         }
       }));
       if (!signal?.aborted) setQueues(snapshots);
@@ -100,7 +80,7 @@ function QueueTracking({ user }: { user: User }) {
     return () => { controller.abort(); window.clearInterval(interval); };
   }, [refresh]);
 
-  const live = queues.some((item) => item.queueStatus === "WAITING" || item.queueStatus === "INCONSULTATION");
+  const live = queues.some((item) => hasActiveQueue(item.queueStatus));
   const queueById = new Map(queues.map((item) => [item.appointmentId, item]));
 
   return <main className="min-h-screen bg-background px-4 py-8 sm:px-6 lg:px-8">
@@ -110,7 +90,7 @@ function QueueTracking({ user }: { user: User }) {
         <Clock3 className="mb-3 text-primary" size={30} aria-hidden="true" />
         <p className="text-sm font-semibold uppercase tracking-widest text-primary">Patient queue</p>
         <h1 className="mt-2 text-3xl font-bold sm:text-4xl">Track your place in the queue</h1>
-        <p className="mt-3 text-neutral-600">Queue details refresh every 30 seconds while you wait. Estimated progress is provided by the clinic.</p>
+        <p className="mt-3 text-neutral-600">Queue details refresh every 30 seconds while you wait. Wait estimates are approximate and may change when urgent patients arrive.</p>
       </header>
       <button type="button" disabled={busy} onClick={() => void refresh()} className="mb-5 inline-flex min-h-11 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white disabled:opacity-50"><RefreshCw size={16} aria-hidden="true" />{busy ? "Refreshing queue..." : "Refresh queue"}</button>
       {error && <div role="alert" className="mb-5 rounded-xl border border-error/20 bg-error-background p-4 text-sm text-error">{error}<SessionExpiredAction message={error} returnTo="/patient/queue-tracking" /></div>}
@@ -128,8 +108,8 @@ function QueueTracking({ user }: { user: User }) {
               <span className={`rounded-full px-3 py-1 text-sm font-semibold ${presentation.className}`}>{presentation.label}</span>
             </div>
             <div className="mt-5 grid gap-4 border-t border-primary/10 pt-4 sm:grid-cols-2">
-              <div><p className="text-sm text-neutral-500">Queue position</p><p className="mt-1 text-2xl font-bold text-primary">{queue?.queuePosition ? `#${queue.queuePosition}` : done ? "—" : status === "BOOKED" ? "Not checked in" : "Unavailable"}</p></div>
-              <div><p className="text-sm text-neutral-500">Estimated progress</p><p className="mt-1 text-lg font-semibold">{queue?.estimatedProgress == null ? "Not available" : queue.estimatedProgress}</p></div>
+              <div><p className="text-sm text-neutral-500">Queue position</p><p className="mt-1 text-2xl font-bold text-primary">{queue?.queuePosition ? `#${queue.queuePosition}` : done || status === "INCONSULTATION" ? "—" : status === "BOOKED" ? "Not checked in" : "Unavailable"}</p></div>
+              <div><p className="text-sm text-neutral-500">Estimated wait</p><p className="mt-1 text-lg font-semibold">{done || status === "INCONSULTATION" ? "—" : queue?.estimatedWaitMinutes == null ? "Not available" : `${queue.estimatedWaitMinutes} min`}</p></div>
             </div>
             <p className="mt-4 text-sm text-neutral-700">{presentation.description}</p>
             {queue?.error && <p role="status" className="mt-3 text-sm text-neutral-600">Queue details are temporarily unavailable. {queue.error}<SessionExpiredAction message={queue.error} returnTo="/patient/queue-tracking" /></p>}

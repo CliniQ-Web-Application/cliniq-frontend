@@ -102,7 +102,7 @@ function PatientProfileManager({ user }: { user: User }) {
     setError("");
     setNotice("");
     try {
-      const result = parseProfile(await api("/patients/me", { method: "POST", body: JSON.stringify(body), signal }));
+      const result = parseProfile(await api("/patients/me", { method: missing ? "POST" : "PUT", body: JSON.stringify(body), signal }));
       if (signal.aborted) return;
       setProfileData(result);
       setValues({ patientName: result.patientName, patientSurname: result.patientSurname, nationalID: result.nationalID, phone: result.phone });

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, CalendarPlus, CheckCircle2, ClipboardList, QrCode, Clock, LogOut, UserRound, Bell, XCircle } from "lucide-react";
+import { CheckCircle2, Clock, XCircle } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
 type Booking = {
@@ -18,47 +18,8 @@ type Booking = {
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
-const actions = [
-  {
-    icon: CalendarPlus,
-    title: "Book appointment",
-    description: "Choose a doctor and clinic time, then confirm your booking.",
-    href: "/patient/book-appointment",
-  },
-  {
-    icon: ClipboardList,
-    title: "View appointments",
-    description: "See your confirmed appointments and booking details.",
-    href: "/patient/book-appointment#my-bookings",
-  },
-  {
-    icon: QrCode,
-    title: "Check in with QR",
-    description: "Scan to confirm your arrival instantly.",
-    href: "/patient/check-in",
-  },
-  {
-    icon: Clock,
-    title: "Track queue position",
-    description: "See where you are in the waiting list.",
-    href: "/patient/queue-tracking",
-  },
-  {
-    icon: UserRound,
-    title: "Patient profile",
-    description: "View and update your name, National ID, and phone number.",
-    href: "/patient/profile",
-  },
-  {
-    icon: Bell,
-    title: "Notifications",
-    description: "View appointment confirmations, queue updates, and clinic messages.",
-    href: "/patient/notifications",
-  },
-];
-
 export default function PatientPortal() {
-  const { profile, user, session, signOut } = useAuth();
+  const { profile, user, session } = useAuth();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
@@ -103,42 +64,11 @@ export default function PatientPortal() {
   return (
     <main className="min-h-screen bg-background px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto w-full max-w-5xl">
-        <div className="flex items-center justify-between">
-          <Link href="/" className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-primary">
-            <ArrowLeft size={18} /> Back to home
-          </Link>
-          <button type="button" onClick={() => signOut()} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-primary/25 px-3 text-sm font-semibold">
-            <LogOut size={16} /> Sign out
-          </button>
-        </div>
-
-        <header className="mt-12">
+        <header>
           <p className="text-sm font-semibold uppercase tracking-[0.14em] text-primary">Patient portal</p>
           <h1 className="mt-2 text-4xl font-bold">Welcome, {patientDisplayName}</h1>
           <p className="mt-3 text-neutral-600">Manage appointments, check in, and follow your queue status.</p>
         </header>
-
-        <section className="mt-8 grid gap-4 sm:grid-cols-2" aria-label="Patient actions">
-          {actions.map(({ icon: Icon, title, description, href }) => (
-            <Link
-              key={title}
-              href={href}
-              className="group flex min-h-28 items-center gap-5 rounded-xl border border-primary/20 bg-surface p-6 transition hover:border-primary"
-            >
-              <span className="flex shrink-0 items-center justify-center rounded-lg bg-accent-surface p-3">
-                <Icon aria-hidden="true" className="text-primary" size={24} />
-              </span>
-              <span>
-                <strong className="block text-lg font-semibold text-foreground group-hover:text-primary">
-                  {title}
-                </strong>
-                <span className="mt-0.5 block text-sm text-neutral-600">
-                  {description}
-                </span>
-              </span>
-            </Link>
-          ))}
-        </section>
 
         {message && <p role="status" className="mt-5 rounded-lg border border-primary/20 bg-accent-surface p-3 text-sm">{message}</p>}
 
@@ -166,6 +96,7 @@ export default function PatientPortal() {
                       </>
                     )}
                     {booking.appointmentStatus === "WAITING" && <span className="text-sm font-semibold text-success">You are in the queue.</span>}
+                    <Link href={`/patient/appointments/${encodeURIComponent(booking.appointmentId)}`} className="inline-flex min-h-10 items-center px-3 text-sm font-semibold text-primary underline">View details</Link>
                   </div>
                 </article>
               ))}

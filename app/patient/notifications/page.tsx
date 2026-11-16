@@ -67,6 +67,7 @@ function PatientNotifications({ user }: { user: User }) {
   const [notifications, setNotifications] = useState<PatientNotification[]>([]);
   const [filter, setFilter] = useState<"all" | "unread" | "read">("all");
   const [busy, setBusy] = useState(true);
+  const [markingId, setMarkingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const request = useRef<AbortController | null>(null);
   const inFlight = useRef(false);
@@ -88,7 +89,7 @@ function PatientNotifications({ user }: { user: User }) {
     setBusy(true);
     setError("");
     try {
-      const data = await api("/notifications", { signal });
+      const data = await api("/notifications/me", { signal });
       const result = normalizeNotifications(data);
       if (!signal?.aborted) setNotifications(result);
     } catch (cause) {
@@ -105,6 +106,23 @@ function PatientNotifications({ user }: { user: User }) {
     queueMicrotask(() => { if (!controller.signal.aborted) void load(controller.signal); });
     return () => controller.abort();
   }, [load]);
+
+  async function markAsRead(id: string) {
+    const signal = request.current?.signal;
+    if (!signal || signal.aborted || inFlight.current) return;
+    inFlight.current = true;
+    setMarkingId(id);
+    setError("");
+    try {
+      await api(`/notifications/${encodeURIComponent(id)}/read`, { method: "PATCH", signal });
+      if (!signal.aborted) setNotifications((current) => current.map((item) => item.id === id ? { ...item, read: true } : item));
+    } catch (cause) {
+      if (!signal.aborted) setError(errorMessage(cause));
+    } finally {
+      inFlight.current = false;
+      if (!signal.aborted) setMarkingId(null);
+    }
+  }
 
   const filtered = notifications.filter((item) => filter === "all" || (filter === "unread" ? item.read === false : item.read === true));
   const unreadCount = notifications.filter((item) => item.read === false).length;
@@ -124,9 +142,9 @@ function PatientNotifications({ user }: { user: User }) {
             <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)} className={`min-h-10 rounded-lg px-3 text-sm font-semibold ${filter === value ? "bg-primary text-white" : "border border-primary/20 bg-surface text-neutral-700 hover:bg-accent-surface"}`}>{label}</button>
           ))}
         </div>
-        <button type="button" disabled={busy} onClick={() => { const signal = request.current?.signal; if (signal && !signal.aborted) void load(signal); }} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-primary/25 px-3 text-sm font-semibold text-primary disabled:opacity-50"><RefreshCw size={15} aria-hidden="true" />{busy ? "Refreshing..." : "Refresh"}</button>
+        <button type="button" disabled={busy || markingId !== null} onClick={() => { const signal = request.current?.signal; if (signal && !signal.aborted) void load(signal); }} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-primary/25 px-3 text-sm font-semibold text-primary disabled:opacity-50"><RefreshCw size={15} aria-hidden="true" />{busy ? "Refreshing..." : "Refresh"}</button>
       </div>
-      {error && <div role="alert" className="mb-5 rounded-xl border border-error/20 bg-error-background p-4 text-sm text-error">{error}<SessionExpiredAction message={error} returnTo="/patient/notifications" /><button type="button" disabled={busy} onClick={() => { const signal = request.current?.signal; if (signal && !signal.aborted) void load(signal); }} className="ml-2 underline">Retry</button></div>}
+      {error && <div role="alert" className="mb-5 rounded-xl border border-error/20 bg-error-background p-4 text-sm text-error">{error}<SessionExpiredAction message={error} returnTo="/patient/notifications" /><button type="button" disabled={busy || markingId !== null} onClick={() => { const signal = request.current?.signal; if (signal && !signal.aborted) void load(signal); }} className="ml-2 underline">Retry</button></div>}
       {!busy && !error && notifications.length === 0 && <p role="status" className="rounded-xl border border-primary/15 bg-surface p-5">You don’t have any notifications yet.</p>}
       {!busy && !error && notifications.length > 0 && filtered.length === 0 && <p role="status" className="rounded-xl border border-primary/15 bg-surface p-5">There are no {filter} notifications.</p>}
       <section aria-label="Notifications" aria-live="polite" aria-busy={busy} className="space-y-3">
@@ -141,6 +159,7 @@ function PatientNotifications({ user }: { user: User }) {
               <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-primary">{item.category.replaceAll("_", " ")}</p>
               {item.message && <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-neutral-700">{item.message}</p>}
               {item.read !== null && <p className="mt-3 text-xs text-neutral-500">{item.read ? "Read" : "Unread"}</p>}
+              {item.read === false && <button type="button" disabled={busy || markingId !== null} onClick={() => { void markAsRead(item.id); }} className="mt-3 min-h-10 rounded-lg border border-primary/25 px-3 text-sm font-semibold text-primary disabled:opacity-50">{markingId === item.id ? "Marking as read..." : "Mark as read"}</button>}
             </div>
           </div>
         </article>)}

@@ -10,9 +10,9 @@ import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { BookingRequestError, createBookingApi, parseBookingConfirmation, type BookingConfirmation } from "@/lib/booking";
 import { appointmentStatusPresentation } from "@/lib/appointment-status";
+import { checkInQrPayload } from "@/lib/check-in-qr";
 import SessionExpiredAction from "@/components/auth/SessionExpiredAction";
 
-const qrPayload = (appointmentId: string) => JSON.stringify({ type: "CLINIQ_CHECK_IN", appointmentId });
 
 function requestError(cause: unknown) {
   if (cause instanceof BookingRequestError && cause.status === 401) return "Your session expired. Sign in again to prepare for check-in.";
@@ -81,7 +81,7 @@ function PatientCheckIn({ user }: { user: User }) {
     setQrImage("");
     if (!selected || selected.appointmentStatus.toUpperCase() !== "BOOKED") return () => { cancelled = true; };
     setQrLoading(true);
-    void QRCode.toDataURL(qrPayload(selected.appointmentId), { errorCorrectionLevel: "M", margin: 2, width: 280 })
+    void QRCode.toDataURL(checkInQrPayload(selected.appointmentId, window.location.origin), { errorCorrectionLevel: "M", margin: 2, width: 280 })
       .then((image) => { if (!cancelled) setQrImage(image); })
       .catch(() => { if (!cancelled) setError("Could not prepare your check-in QR code. Please select the appointment again."); })
       .finally(() => { if (!cancelled) setQrLoading(false); });

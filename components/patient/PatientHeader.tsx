@@ -94,7 +94,7 @@ export default function PatientHeader() {
                 setMenuOpen(false);
                 void signOut();
               }}
-              className="flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold text-red-600 hover:bg-red-50"
+              className="flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold text-red-600 hover:bg-red-50 sm:hidden"
             >
               <LogOut size={17} aria-hidden="true" />
               Logout
