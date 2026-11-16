@@ -29,7 +29,7 @@ const actions = [
     icon: ClipboardList,
     title: "View appointments",
     description: "See your confirmed appointments and booking details.",
-    href: "/patient/book-appointment#my-bookings",
+    href: "/patient/appointments",
   },
   {
     icon: QrCode,

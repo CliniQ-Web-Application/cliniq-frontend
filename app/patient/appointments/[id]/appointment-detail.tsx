@@ -125,7 +125,7 @@ function AppointmentDetailContent({ user, appointmentId }: { user: User; appoint
 
   return <main className="min-h-screen bg-background px-4 py-8 sm:px-6 lg:px-8">
     <div className="mx-auto w-full max-w-3xl">
-      <Link href="/patient/book-appointment#my-bookings" className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-primary hover:underline"><ArrowLeft size={18} aria-hidden="true" /> Back to my appointments</Link>
+      <Link href="/patient/appointments" className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-primary hover:underline"><ArrowLeft size={18} aria-hidden="true" /> Back to my appointments</Link>
       <header className="mb-8 mt-8">
         <CalendarDays className="mb-3 text-primary" size={30} aria-hidden="true" />
         <p className="text-sm font-semibold uppercase tracking-widest text-primary">Appointment details</p>

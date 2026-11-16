@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import Link from "next/link";
-import { ArrowLeft, CalendarPlus } from "lucide-react";
+import {ArrowLeft, CalendarPlus, Eye, PenLine} from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import CheckInQr from "@/components/booking/CheckInQr";
 import { supabase } from "@/lib/supabase";
@@ -269,9 +269,13 @@ function PatientBooking({ user }: { user: User }) {
           <CalendarPlus className="mb-3 text-primary" size={30} aria-hidden="true" />
           <p className="text-sm font-semibold uppercase tracking-widest text-primary">Patient appointments</p>
           <h1 className="mt-2 text-3xl font-bold sm:text-4xl">Book an appointment</h1>
-          <p className="mt-3 text-neutral-600">Choose a department, doctor, and clinic time. <a href="#my-bookings" className="text-primary underline">View your appointments</a></p>
+
+          <p className="mt-3 text-neutral-600">Choose a department, doctor, and clinic time. <a href="/patient/appointments" className="text-primary underline">View your appointments</a></p>
         </header>
 
+        <Link href="/patient/appointments" className="mb-6 inline-flex min-h-11 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white">
+          <Eye size={18} aria-hidden="true" /> View appointments
+        </Link>
         {profileState === "loading" && <p role="status" className="mb-4">Checking your patient profile...</p>}
         {profileState === "error" && <div role="alert" className="mb-5"><p>{profileError}<SessionExpiredAction message={profileError} returnTo="/patient/book-appointment" /></p><button className="min-h-11 text-primary underline" onClick={() => void loadProfile(signal())}>Retry profile check</button></div>}
         {profileState === "missing" && (
@@ -344,14 +348,6 @@ function PatientBooking({ user }: { user: User }) {
           <button type="button" disabled={submitting || loading || savingProfile} onClick={() => void loadAvailability(signal())} className="min-h-11 text-primary underline disabled:opacity-50">Refresh availability</button>
         </form>
 
-        <section id="my-bookings" aria-labelledby="my-bookings-heading" aria-busy={bookingsLoading} className="mt-10 scroll-mt-6 space-y-4">
-          <h2 id="my-bookings-heading" className="text-2xl font-bold">My appointments</h2>
-          <p className="text-sm text-neutral-600">These appointments belong to your signed-in account. If a booking response was lost, check here before trying to book again.</p>
-          <button type="button" disabled={bookingsLoading || submitting} onClick={() => void checkBookings()} className={buttonClass}>{bookingsLoading ? "Loading appointments..." : "Check / refresh my appointments"}</button>
-          {bookingsError && <p role="alert" className="text-error">{bookingsError}<SessionExpiredAction message={bookingsError} returnTo="/patient/book-appointment#my-bookings" /></p>}
-          {!bookingsLoading && !bookingsError && bookings.length === 0 && <p role="status">No appointments found.</p>}
-          {bookings.map((booking) => <Confirmation key={booking.appointmentId} booking={booking} />)}
-        </section>
       </div>
     </main>
   );
