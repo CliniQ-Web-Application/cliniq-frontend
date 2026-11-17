@@ -40,64 +40,6 @@ function PatientNotifications() {
 
   // Same shared cache as the notification bell.
   const { data: notifications = [], isPending: busy, isFetching, error, refetch } = useNotifications();
-<<<<<<< Updated upstream
-  const message = error ? errorMessage(error) : "";
-  const [busy, setBusy] = useState(true);
-  const [markingId, setMarkingId] = useState<string | null>(null);
-  const [error, setError] = useState("");
-  const request = useRef<AbortController | null>(null);
-  const inFlight = useRef(false);
-  const api = useMemo(() => createBookingApi({
-    baseUrl: process.env.NEXT_PUBLIC_API_URL,
-    getToken: async () => {
-      const { data, error: authError } = await supabase.auth.getSession();
-      return !authError && data.session?.user.id === user.id ? data.session.access_token : null;
-    },
-    refreshToken: async () => {
-      const { data, error: authError } = await supabase.auth.refreshSession();
-      return !authError && data.session?.user.id === user.id ? data.session.access_token : null;
-    },
-  }), [user.id]);
-
-  const load = useCallback(async (signal?: AbortSignal) => {
-    if (inFlight.current || signal?.aborted) return;
-    inFlight.current = true;
-    setBusy(true);
-    setError("");
-    try {
-      const data = await api("/notifications/me", { signal });
-      const result = normalizeNotifications(data);
-      if (!signal?.aborted) setNotifications(result);
-    } catch (cause) {
-      if (!signal?.aborted) setError(errorMessage(cause));
-    } finally {
-      inFlight.current = false;
-      if (!signal?.aborted) setBusy(false);
-    }
-  }, [api]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    request.current = controller;
-    queueMicrotask(() => { if (!controller.signal.aborted) void load(controller.signal); });
-    return () => controller.abort();
-  }, [load]);
-
-  async function markAsRead(id: string) {
-    const signal = request.current?.signal;
-    if (!signal || signal.aborted || inFlight.current) return;
-    inFlight.current = true;
-    setMarkingId(id);
-    setError("");
-    try {
-      await api(`/notifications/${encodeURIComponent(id)}/read`, { method: "PATCH", signal });
-      if (!signal.aborted) setNotifications((current) => current.map((item) => item.id === id ? { ...item, read: true } : item));
-    } catch (cause) {
-      if (!signal.aborted) setError(errorMessage(cause));
-    } finally {
-      inFlight.current = false;
-      if (!signal.aborted) setMarkingId(null);
-=======
   const message = actionError || (error ? errorMessage(error) : "");
 
   async function markAsRead(id: string) {
@@ -111,7 +53,6 @@ function PatientNotifications() {
       setActionError(errorMessage(cause));
     } finally {
       setMarkingId(null);
->>>>>>> Stashed changes
     }
   }
 

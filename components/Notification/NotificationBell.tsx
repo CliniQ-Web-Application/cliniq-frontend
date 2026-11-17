@@ -1,27 +1,30 @@
 "use client";
 import { Bell, Loader2 } from "lucide-react";
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useNotifications } from "@/lib/queries";
+import { bookingApi } from "@/lib/api-client";
+import { queryKeys } from "@/lib/query-keys";
 
 export default function NotificationBell() {
     const [isOpen, setIsOpen] = useState(false);
-    // Shared, periodically refreshed cache (also used by the notifications page).
+    const [markingId, setMarkingId] = useState<string | null>(null);
+    const [error, setError] = useState("");
+    const queryClient = useQueryClient();
+
+    // Shared cache with the notifications page; refreshed by realtime events.
     const { data: items = [], isPending: loading } = useNotifications();
 
     async function markAsRead(id: string) {
-        if (saving.current) return;
-        saving.current = true;
-        mutationVersion.current++;
+        if (markingId !== null) return;
         setMarkingId(id);
         setError("");
         try {
-            const updated = await markNotificationRead(id);
-            setItems((current) => current.map((item) => item.notificationId === id ? updated : item));
+            await bookingApi(`/notifications/${encodeURIComponent(id)}/read`, { method: "PATCH" });
+            await queryClient.invalidateQueries({ queryKey: queryKeys.notifications });
         } catch (cause) {
             setError(cause instanceof Error ? cause.message : "Could not mark this notification as read.");
         } finally {
-            mutationVersion.current++;
-            saving.current = false;
             setMarkingId(null);
         }
     }
@@ -46,6 +49,7 @@ export default function NotificationBell() {
             {isOpen && (
                 <div className="absolute right-0 mt-2 w-80 bg-white border rounded-lg shadow-lg z-50 max-h-96 overflow-y-auto">
                     <div className="p-3 border-b font-semibold text-sm">Notifications</div>
+                    {error && <p role="alert" className="p-2 text-xs text-error">{error}</p>}
                     {loading ? (
                         <div className="flex items-center justify-center gap-2 p-4 text-sm text-gray-500">
                             <Loader2 size={16} className="animate-spin" /> Loading notifications...

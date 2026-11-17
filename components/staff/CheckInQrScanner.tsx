@@ -3,20 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import jsQR from "jsqr";
 import { Camera, X } from "lucide-react";
-<<<<<<< Updated upstream
 import { appointmentIdFromQr } from "@/lib/check-in-qr";
-=======
-import { appointmentIdFromCheckInQr } from "@/lib/check-in-qr";
->>>>>>> Stashed changes
 
 type DetectedBarcode = { rawValue?: string };
 type BarcodeDetectorLike = { detect: (source: HTMLVideoElement) => Promise<DetectedBarcode[]> };
 type BarcodeDetectorConstructor = new (options: { formats: string[] }) => BarcodeDetectorLike;
 
-<<<<<<< Updated upstream
-
-=======
->>>>>>> Stashed changes
 export default function CheckInQrScanner({ onDetected, onClose }: { onDetected: (appointmentId: string) => void; onClose: () => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const callbackRef = useRef(onDetected);
@@ -39,7 +31,7 @@ export default function CheckInQrScanner({ onDetected, onClose }: { onDetected: 
     // Shared handler for a decoded raw QR value.
     const handleValue = (rawValue: string | undefined) => {
       if (!rawValue || handled) return false;
-      const appointmentId = appointmentIdFromCheckInQr(rawValue);
+      const appointmentId = appointmentIdFromQr(rawValue);
       if (appointmentId) {
         handled = true;
         callbackRef.current(appointmentId);

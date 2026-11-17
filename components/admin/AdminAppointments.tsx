@@ -45,7 +45,7 @@ function AppointmentManager() {
   useEffect(() => () => mutation.current?.abort(), []);
   useEffect(() => {
     const controller = new AbortController();
-    setLoading(true); setListError("");
+    queueMicrotask(() => { setLoading(true); setListError(""); });
     void api(`/admin/appointments?${params}`, { signal: controller.signal }).then((value) => {
       const data = parseAdminAppointmentPage(value);
       if (controller.signal.aborted) return;
@@ -62,9 +62,9 @@ function AppointmentManager() {
 
   useEffect(() => {
     const controller = new AbortController();
-    setDetail(null); setDetailError(""); setConfirmCancel(false);
-    if (!selectedId) { setDetailLoading(false); return () => controller.abort(); }
-    setDetailLoading(true);
+    queueMicrotask(() => { setDetail(null); setDetailError(""); setConfirmCancel(false); });
+    if (!selectedId) { queueMicrotask(() => setDetailLoading(false)); return () => controller.abort(); }
+    queueMicrotask(() => setDetailLoading(true));
     detailHeading.current?.focus();
     void api(`/admin/appointments/${encodeURIComponent(selectedId)}`, { signal: controller.signal }).then((value) => {
       const appointment = parseAdminAppointment(value);

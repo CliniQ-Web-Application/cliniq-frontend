@@ -35,6 +35,7 @@ function VerifiedAdmin({ userId, staffId, children }: { userId: string; staffId:
       const { data, error: sessionError } = refresh ? await supabase.auth.refreshSession() : await supabase.auth.getSession();
       return !sessionError && data.session?.user.id === userId ? data.session.access_token : null;
     };
+    // eslint-disable-next-line react-hooks/refs -- the ref is read only inside async callbacks, never during render
     const request = createStaffApi({
       baseUrl: process.env.NEXT_PUBLIC_API_URL,
       getToken: () => token(), refreshToken: () => token(true),
@@ -65,26 +66,26 @@ function VerifiedAdmin({ userId, staffId, children }: { userId: string; staffId:
     const controller = new AbortController();
     lifetime.current = controller;
     // Stop in-flight work immediately on logout, even before AuthContext finishes updating.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === "SIGNED_OUT" || (session && session.user.id !== userId)) {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, authSession) => {
+      if (event === "SIGNED_OUT" || (authSession && authSession.user.id !== userId)) {
         controller.abort();
         setVerified(false);
         setError("Your session changed. Please sign in again.");
       }
     });
     return () => { subscription.unsubscribe(); controller.abort(); };
-  }, [userId]);
+  }, [lifetime, userId]);
 
   useEffect(() => {
     const controller = new AbortController();
-    setError("");
-    void api(`/staff/${encodeURIComponent(staffId)}`, { signal: controller.signal }).then((value) => {
+    queueMicrotask(() => setError(""));
+    queueMicrotask(() => void api(`/staff/${encodeURIComponent(staffId)}`, { signal: controller.signal }).then((value) => {
       const member = parseDoctor(value);
       if (member.staffId !== staffId || member.staffRole !== "ADMIN" || !member.active) throw new Error("Only active administrators can use this manager.");
       if (!controller.signal.aborted) setVerified(true);
     }).catch((cause) => {
       if (!controller.signal.aborted && !lifetime.current?.signal.aborted) setError(adminError(cause));
-    });
+    }));
     return () => controller.abort();
   }, [api, staffId, attempt, lifetime]);
 
@@ -109,7 +110,7 @@ export function useAdminChoices() {
   const retry = useCallback(() => setAttempt((value) => value + 1), []);
   useEffect(() => {
     const controller = new AbortController();
-    setError("");
+    queueMicrotask(() => setError(""));
     void Promise.all([api("/staff", { signal: controller.signal }), api("/departments", { signal: controller.signal })])
       .then(([staff, departments]) => {
         if (!controller.signal.aborted) setChoices({ doctors: parseDoctors(staff), departments: parseDepartments(departments) });

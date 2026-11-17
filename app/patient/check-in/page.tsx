@@ -7,17 +7,10 @@ import { RefreshCw } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { BookingRequestError } from "@/lib/booking";
 import { useBookings } from "@/lib/queries";
-import { checkInUrl } from "@/lib/check-in-qr";
+import { checkInQrPayload } from "@/lib/check-in-qr";
 import { appointmentStatusPresentation } from "@/lib/appointment-status";
 import PageHeader from "@/components/ui/PageHeader";
-import { checkInQrPayload } from "@/lib/check-in-qr";
 import SessionExpiredAction from "@/components/auth/SessionExpiredAction";
-
-<<<<<<< Updated upstream
-=======
-// The QR encodes a check-in URL; the staff scanner extracts the appointment id from it.
-const qrPayload = (appointmentId: string) => checkInUrl(appointmentId);
->>>>>>> Stashed changes
 
 function requestError(cause: unknown) {
   if (cause instanceof BookingRequestError && cause.status === 401) return "Your session expired. Sign in again to prepare for check-in.";
@@ -54,7 +47,8 @@ function PatientCheckIn() {
     queueMicrotask(() => { if (!cancelled) { setQrImage(""); setQrError(""); } });
     if (!selected || selected.appointmentStatus.toUpperCase() !== "BOOKED") return () => { cancelled = true; };
     queueMicrotask(() => { if (!cancelled) setQrLoading(true); });
-    void QRCode.toDataURL(qrPayload(selected.appointmentId), { errorCorrectionLevel: "M", margin: 2, width: 280 })
+    // The QR encodes a check-in URL; the staff scanner extracts the appointment id from it.
+    void QRCode.toDataURL(checkInQrPayload(selected.appointmentId, window.location.origin), { errorCorrectionLevel: "M", margin: 2, width: 280 })
       .then((image) => { if (!cancelled) setQrImage(image); })
       .catch(() => { if (!cancelled) setQrError("Could not prepare your check-in QR code. Please select the appointment again."); })
       .finally(() => { if (!cancelled) setQrLoading(false); });
@@ -85,7 +79,12 @@ function PatientCheckIn() {
           <p className="font-semibold">{selected.departmentName ?? "Clinic appointment"} · Dr. {selected.doctorName}</p>
           <p className="mt-1 text-sm text-neutral-600">{selected.slotDate} · {selected.startTime.slice(0, 5)} (clinic time)</p>
           {qrLoading && <p role="status" className="mt-4">Preparing your QR code...</p>}
-          {qrImage && <div className="mx-auto mt-4 w-fit rounded-xl bg-white p-3"><img src={qrImage} alt={`Check-in QR code for appointment ${selected.appointmentId}`} width={280} height={280} /></div>}
+          {qrImage && (
+            <div className="mx-auto mt-4 w-fit rounded-xl bg-white p-3">
+              {/* eslint-disable-next-line @next/next/no-img-element -- QR is a runtime data URL */}
+              <img src={qrImage} alt={`Check-in QR code for appointment ${selected.appointmentId}`} width={280} height={280} />
+            </div>
+          )}
           <p className="mt-3 text-sm text-neutral-700">Keep this code on your screen and show it to clinic staff. It contains your appointment reference only.</p>
           <p className="mt-2 break-all font-mono text-xs text-neutral-500">Appointment ID: {selected.appointmentId}</p>
         </div>}

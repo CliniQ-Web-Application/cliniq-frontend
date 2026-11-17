@@ -34,7 +34,7 @@ function ScheduleManager() {
   useEffect(() => () => mutation.current?.abort(), []);
   useEffect(() => {
     const controller = new AbortController();
-    setLoading(true); setError("");
+    queueMicrotask(() => { setLoading(true); setError(""); });
     void api("/admin/schedules", { signal: controller.signal }).then((value) => {
       const next = parseSchedules(value);
       if (!controller.signal.aborted) setSlots(next);

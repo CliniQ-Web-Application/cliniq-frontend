@@ -3,7 +3,7 @@
 import Link from "next/link";
 import AdminSchedules from "./AdminSchedules";
 import AdminAppointments from "./AdminAppointments";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { staffApi } from "@/lib/api-client";
 import { useAdminQueues, useAnalytics, useAuditLogs, useDepartments, useStaffList } from "@/lib/queries";
@@ -191,59 +191,6 @@ function AdminHeader({ activePage }: { activePage: AdminPage }) {
 
 function PageHeading({ title, description, action }: { title: string; description: string; action?: React.ReactNode }) {
   return <PageHeader title={title} description={description} action={action} />;
-}
-
-function LegacyAnalyticsPage() {
-  const [range, setRange] = useState("1 Oct – 7 Oct");
-  return (
-    <>
-      <PageHeading
-        title="Analytics"
-        description="Track waiting times, appointments and attendance across Nyangabgwe Referral Hospital."
-        action={<button type="button" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-hover"><Download size={16} /> Generate report</button>}
-      />
-      <div className="mt-8 grid gap-3 rounded-xl border border-primary/15 bg-surface p-3 shadow-sm sm:grid-cols-3">
-        <label className="flex items-center gap-2 rounded-lg border border-primary/20 bg-background px-3 text-sm font-medium"><Clock3 size={16} className="text-primary" /><span className="sr-only">Date range</span><select value={range} onChange={(event) => setRange(event.target.value)} className="h-10 w-full bg-transparent outline-none"><option>1 Oct – 7 Oct</option><option>8 Oct – 14 Oct</option><option>1 Sep – 30 Sep</option></select></label>
-        <label className="flex items-center gap-2 rounded-lg border border-primary/20 bg-background px-3 text-sm font-medium"><Filter size={16} className="text-primary" /><span className="sr-only">Department</span><select className="h-10 w-full bg-transparent outline-none"><option>All departments</option><option>General practice</option><option>Paediatrics</option><option>Dental</option></select></label>
-        <label className="flex items-center gap-2 rounded-lg border border-primary/20 bg-background px-3 text-sm font-medium"><Stethoscope size={16} className="text-primary" /><span className="sr-only">Doctor</span><select className="h-10 w-full bg-transparent outline-none"><option>All doctors</option><option>Dr. Molefe</option><option>Dr. Kgosi</option></select></label>
-      </div>
-      <section className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Key metrics">
-        {[
-          ["28 min", "Average waiting time", "↓ 6% from last period", Clock3],
-          ["214", "Appointments", "↑ 12% from last period", FileText],
-          ["82%", "Completion rate", "175 completed visits", Check],
-          ["9%", "No-show rate", "19 missed appointments", AlertTriangle],
-        ].map(([value, label, trend, Icon]) => (
-          <article key={label as string} className="rounded-xl border border-primary/15 bg-surface p-5 shadow-sm">
-            <div className="flex items-center justify-between"><span className="rounded-lg bg-accent-surface p-2.5 text-primary"><Icon size={19} /></span><span className="text-xs font-semibold text-success">{trend as string}</span></div>
-            <p className="mt-5 text-3xl font-bold">{value as string}</p>
-            <p className="mt-1 text-sm font-medium text-neutral-600">{label as string}</p>
-          </article>
-        ))}
-      </section>
-      <section className="mt-5 grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
-        <article className="rounded-xl border border-primary/15 bg-surface p-5 shadow-sm">
-          <div className="flex items-center justify-between"><h2 className="font-bold">Average wait by department</h2><span className="text-xs text-neutral-500">{range}</span></div>
-          <div className="mt-6 space-y-5">
-            {[["General", 34, "w-[86%]"], ["Paediatrics", 26, "w-[67%]"], ["Dental", 19, "w-[49%]"], ["Eye clinic", 23, "w-[59%]"]].map(([name, minutes, width]) => (
-              <div key={name as string} className="grid grid-cols-[90px_1fr_48px] items-center gap-3 text-sm"><span className="font-medium">{name as string}</span><div className="h-3 overflow-hidden rounded-full bg-background"><div className={cx("h-full rounded-full bg-primary", width as string)} /></div><span className="text-right font-semibold">{minutes as number} min</span></div>
-            ))}
-          </div>
-        </article>
-        <article className="rounded-xl border border-primary/15 bg-surface p-5 shadow-sm">
-          <h2 className="font-bold">Peak arrival hours</h2>
-          <div className="mt-6 flex h-32 items-end justify-between gap-2 border-b border-primary/15 px-2">
-            {[42, 22, 62, 44, 87, 56, 28].map((height, index) => <div key={index} className="flex h-full flex-1 flex-col items-center justify-end gap-2"><div className="w-full max-w-10 rounded-t-md bg-primary" style={{ height: `${height}%` }} /><span className="text-xs text-neutral-500">{index + 8}</span></div>)}
-          </div>
-          <p className="mt-4 text-sm text-neutral-500">Most arrivals are recorded between 11:00 and 13:00.</p>
-        </article>
-      </section>
-      <section className="mt-5 rounded-xl border border-primary/15 bg-surface p-5 shadow-sm">
-        <h2 className="font-bold">Appointment outcomes</h2>
-        <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[520px] text-left text-sm"><thead className="border-b border-primary/15 text-neutral-500"><tr><th className="px-3 py-3 font-semibold">Status</th><th className="px-3 py-3 font-semibold">Count</th><th className="px-3 py-3 font-semibold">Share</th><th className="px-3 py-3 font-semibold">Trend</th></tr></thead><tbody>{[["Completed", "175", "82%", "↑ 4%"], ["Cancelled", "20", "9%", "↓ 2%"], ["No-show", "19", "9%", "↓ 1%"]].map(([status, count, share, trend]) => <tr key={status} className="border-b border-primary/10 last:border-0"><td className="px-3 py-3 font-semibold">{status}</td><td className="px-3 py-3">{count}</td><td className="px-3 py-3">{share}</td><td className="px-3 py-3 text-success">{trend}</td></tr>)}</tbody></table></div>
-      </section>
-    </>
-  );
 }
 
 function AnalyticsPage() {
@@ -434,7 +381,6 @@ function StaffPage() {
   const {
     data: staff = [],
     isPending: loading,
-    isFetching: refreshing,
     error: queryError,
     refetch,
   } = useStaffList<AdminStaff>({ enabled });

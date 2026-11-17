@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useCallback, useEffect } from "react";
+import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { CalendarPlus, CheckCircle2, Clock, ClipboardList, QrCode, Loader2, UserRound, Bell, XCircle } from "lucide-react";
+import { CalendarPlus, CheckCircle2, Loader2, XCircle } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { bookingApi } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
@@ -11,44 +11,7 @@ import { useBookings } from "@/lib/queries";
 import AppointmentCard from "@/components/appointments/AppointmentCard";
 import PageHeader from "@/components/ui/PageHeader";
 
-const actions = [
-  {
-    icon: CalendarPlus,
-    title: "Book appointment",
-    description: "Choose a doctor and clinic time, then confirm your booking.",
-    href: "/patient/book-appointment",
-  },
-  {
-    icon: ClipboardList,
-    title: "View appointments",
-    description: "See your confirmed appointments and booking details.",
-    href: "/patient/appointments",
-  },
-  {
-    icon: QrCode,
-    title: "Check in with QR",
-    description: "Scan to confirm your arrival instantly.",
-    href: "/patient/check-in",
-  },
-  {
-    icon: Clock,
-    title: "Track queue position",
-    description: "See where you are in the waiting list.",
-    href: "/patient/queue-tracking",
-  },
-  {
-    icon: UserRound,
-    title: "Patient profile",
-    description: "View and update your name, National ID, and phone number.",
-    href: "/patient/profile",
-  },
-  {
-    icon: Bell,
-    title: "Notifications",
-    description: "View appointment confirmations, queue updates, and clinic messages.",
-    href: "/patient/notifications",
-  },
-];
+
 
 export default function PatientPortal() {
   const { profile, user } = useAuth();
@@ -145,20 +108,6 @@ export default function PatientPortal() {
                   }
                   href={`/patient/appointments/${encodeURIComponent(booking.appointmentId)}`}
                 />
-                    <span className="rounded-full bg-accent-surface px-2.5 py-1 text-xs font-semibold text-primary">{booking.appointmentStatus}</span>
-                  </div>
-                  <p className="mt-4 flex items-center gap-2 text-sm"><Clock size={16} /> {booking.appointmentTime?.slice(0, 5) ?? `${booking.startTime} – ${booking.endTime}`}</p>
-                  <div className="mt-5 flex flex-wrap gap-2">
-                    {booking.appointmentStatus === "BOOKED" && (
-                      <>
-                        <button type="button" onClick={() => updateBooking(booking.appointmentId, "check-in")} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-primary px-3 text-sm font-semibold text-white"><CheckCircle2 size={16} /> Check in</button>
-                        <button type="button" onClick={() => updateBooking(booking.appointmentId, "cancel")} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-red-200 px-3 text-sm font-semibold text-red-700"><XCircle size={16} /> Cancel</button>
-                      </>
-                    )}
-                    {booking.appointmentStatus === "WAITING" && <span className="text-sm font-semibold text-success">You are in the queue.</span>}
-                    <Link href={`/patient/appointments/${encodeURIComponent(booking.appointmentId)}`} className="inline-flex min-h-10 items-center px-3 text-sm font-semibold text-primary underline">View details</Link>
-                  </div>
-                </article>
               ))}
             </div>
           )}

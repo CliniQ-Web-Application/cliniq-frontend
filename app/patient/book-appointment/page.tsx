@@ -21,9 +21,6 @@ import { bookingApi } from "@/lib/api-client";
 import { BookingRequestError, bookingBody, parseBookingConfirmation, patientProfileBody, slotCapacityLabel, type BookingConfirmation, type PatientProfileInput } from "@/lib/booking";
 import { queryKeys } from "@/lib/query-keys";
 import { useAvailability, useBookings, usePatientProfile } from "@/lib/queries";
-import CheckInQr from "@/components/booking/CheckInQr";
-import { supabase } from "@/lib/supabase";
-import { appointmentStatusPresentation } from "@/lib/appointment-status";
 import { departmentAvailabilitySummary, doctorAvailabilityPresentation } from "@/lib/availability";
 import SessionExpiredAction from "@/components/auth/SessionExpiredAction";
 
@@ -103,7 +100,7 @@ function PatientBooking() {
   // All three data sets are read from the shared, periodically refreshed cache.
   const profileQuery = usePatientProfile();
   const { data: slots = [], isPending: loading, error: availabilityErrorCause, refetch: refetchAvailability } = useAvailability();
-  const { data: bookings = [], isPending: bookingsLoading, error: bookingsErrorCause, refetch: refetchBookings } = useBookings();
+  const { isPending: bookingsLoading, error: bookingsErrorCause, refetch: refetchBookings } = useBookings();
 
   const profileState: "loading" | "missing" | "ready" | "error" = profileQuery.isPending
     ? "loading"
