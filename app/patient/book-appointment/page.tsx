@@ -1,31 +1,20 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { User } from "@supabase/supabase-js";
 import Link from "next/link";
-import { useQueryClient } from "@tanstack/react-query";
-import { Eye } from "lucide-react";
+import { ArrowLeft, CalendarPlus } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-import AppointmentCard from "@/components/appointments/AppointmentCard";
-import PageHeader from "@/components/ui/PageHeader";
-import { bookingApi } from "@/lib/api-client";
-import { BookingRequestError, bookingBody, parseBookingConfirmation, patientProfileBody, slotCapacityLabel, type BookingConfirmation, type PatientProfileInput } from "@/lib/booking";
-import { queryKeys } from "@/lib/query-keys";
-import { useAvailability, useBookings, usePatientProfile } from "@/lib/queries";
 import CheckInQr from "@/components/booking/CheckInQr";
 import { supabase } from "@/lib/supabase";
 import { appointmentStatusPresentation } from "@/lib/appointment-status";
 import { departmentAvailabilitySummary, doctorAvailabilityPresentation } from "@/lib/availability";
 import SessionExpiredAction from "@/components/auth/SessionExpiredAction";
+import {
+  availableBookingSlots, bookingBody, BookingRequestError, createBookingApi,
+  parseBookingConfirmation, patientProfileBody, slotCapacityLabel,
+  type BookingConfirmation, type BookingSlot, type PatientProfileInput,
+} from "@/lib/booking";
 
 const inputClass = "mt-2 h-11 w-full rounded-lg border border-primary/25 bg-background px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:opacity-50";
 const buttonClass = "min-h-11 rounded-lg bg-primary px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50";
@@ -51,7 +40,7 @@ export default function BookAppointmentPage() {
   const { user, profile, role, session, loading } = useAuth();
   // Key by identity, not token: a refresh must not discard a selection or confirmation.
   if (user && profile?.id === user.id && role === "PATIENT" && session?.user.id === user.id) {
-    return <PatientBooking key={user.id} />;
+    return <PatientBooking key={user.id} user={user} />;
   }
   return (
     <main className="min-h-screen bg-background p-8">
@@ -63,70 +52,125 @@ export default function BookAppointmentPage() {
 }
 
 function Confirmation({ booking }: { booking: BookingConfirmation }) {
+  const status = appointmentStatusPresentation(booking.appointmentStatus);
   return (
-    <AppointmentCard
-      title={booking.departmentName ?? "Department no longer assigned"}
-      subtitle={`Dr. ${booking.doctorName} · ${booking.slotDate} · ${booking.appointmentTime?.slice(0, 5) ?? `${booking.startTime.slice(0, 5)} – ${booking.endTime.slice(0, 5)}`} (clinic time)`}
-      status={booking.appointmentStatus}
-      details={[
-        { label: "Date", value: booking.slotDate },
-        { label: "Time", value: booking.appointmentTime?.slice(0, 5) ?? `${booking.startTime.slice(0, 5)} – ${booking.endTime.slice(0, 5)}` },
-      ]}
-      footer={<p className="mt-3 break-all text-sm text-neutral-500">Appointment ID: {booking.appointmentId}</p>}
-      href={`/patient/appointments/${encodeURIComponent(booking.appointmentId)}`}
-    />
+    <div className="rounded-xl border border-primary/20 bg-accent-surface p-4 text-sm">
+      <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${status.className}`}>{status.label}</span>
+      <p className="mt-2 break-all">Appointment ID: {booking.appointmentId}</p>
+      <p>{booking.departmentName ?? "Department no longer assigned"} · {booking.doctorName}</p>
+      <p>{booking.slotDate} · {booking.appointmentTime?.slice(0, 5) ?? `${booking.startTime.slice(0, 5)} – ${booking.endTime.slice(0, 5)}`} (clinic time)</p>
+      <p className="mt-2 text-neutral-700">{status.description}</p>
+      <Link href={`/patient/appointments/${encodeURIComponent(booking.appointmentId)}`} className="mt-3 inline-flex min-h-10 items-center font-semibold text-primary underline">View appointment details</Link>
+    </div>
   );
 }
 
-function PatientBooking() {
-  const queryClient = useQueryClient();
-  const { user } = useAuth();
+function PatientBooking({ user }: { user: User }) {
+  const [slots, setSlots] = useState<BookingSlot[]>([]);
   const [departmentId, setDepartmentId] = useState("");
   const [staffId, setStaffId] = useState("");
   const [date, setDate] = useState("");
   const [slotId, setSlotId] = useState("");
   const [appointmentTime, setAppointmentTime] = useState("");
+  const [profileState, setProfileState] = useState<"loading" | "missing" | "ready" | "error">("loading");
+  const [profileError, setProfileError] = useState("");
   const [profileInput, setProfileInput] = useState<PatientProfileInput>(() => {
-    const meta = user?.user_metadata;
-    const text = (key: string) => typeof meta?.[key] === "string" ? meta[key] : "";
+    const meta = user.user_metadata;
+    const text = (key: string) => typeof meta[key] === "string" ? meta[key] : "";
     return { patientName: text("first_name"), patientSurname: text("last_name"), nationalID: text("national_id"), phone: text("phone") };
   });
-  const [profileError, setProfileError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [availabilityError, setAvailabilityError] = useState("");
   const [bookingError, setBookingError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [success, setSuccess] = useState<BookingConfirmation | null>(null);
   const [uncertainSlot, setUncertainSlot] = useState<string | null>(null);
+  const [bookings, setBookings] = useState<BookingConfirmation[]>([]);
+  const [bookingsLoading, setBookingsLoading] = useState(true);
+  const [bookingsError, setBookingsError] = useState("");
   const inFlight = useRef(false);
   const profileInFlight = useRef(false);
+  const lifetime = useRef<AbortController | null>(null);
+  const userId = user.id;
+  const api = useMemo(() => createBookingApi({
+    baseUrl: process.env.NEXT_PUBLIC_API_URL,
+    getToken: async () => {
+      const { data, error } = await supabase.auth.getSession();
+      return !error && data.session?.user.id === userId ? data.session.access_token : null;
+    },
+    refreshToken: async () => {
+      const { data, error } = await supabase.auth.refreshSession();
+      return !error && data.session?.user.id === userId ? data.session.access_token : null;
+    },
+  }), [userId]);
 
-  // All three data sets are read from the shared, periodically refreshed cache.
-  const profileQuery = usePatientProfile();
-  const { data: slots = [], isPending: loading, error: availabilityErrorCause, refetch: refetchAvailability } = useAvailability();
-  const { data: bookings = [], isPending: bookingsLoading, error: bookingsErrorCause, refetch: refetchBookings } = useBookings();
+  const loadProfile = useCallback(async (signal: AbortSignal) => {
+    setProfileState("loading");
+    setProfileError("");
+    try {
+      const data = await api("/patients/me", { signal });
+      if (!data || typeof data !== "object" || !("patientID" in data)) throw new Error("Could not read your patient profile. Please retry.");
+      if (!signal.aborted) setProfileState("ready");
+    } catch (cause) {
+      if (signal.aborted) return;
+      if (cause instanceof BookingRequestError && cause.status === 404) setProfileState("missing");
+      else { setProfileState("error"); setProfileError(messageOf(cause, "check your patient profile")); }
+    }
+  }, [api]);
 
-  const profileState: "loading" | "missing" | "ready" | "error" = profileQuery.isPending
-    ? "loading"
-    : profileQuery.isSuccess
-      ? "ready"
-      : profileQuery.error instanceof BookingRequestError && profileQuery.error.status === 404
-        ? "missing"
-        : "error";
-  const profileMessage = profileQuery.error && profileState === "error"
-    ? messageOf(profileQuery.error, "check your patient profile")
-    : "";
-  const availabilityError = availabilityErrorCause ? messageOf(availabilityErrorCause, "load clinic availability") : "";
-  const bookingsError = bookingsErrorCause ? messageOf(bookingsErrorCause, "load your appointments") : "";
-  const displayedProfileError = profileError || profileMessage;
+  const loadAvailability = useCallback(async (signal: AbortSignal) => {
+    setLoading(true);
+    setAvailabilityError("");
+    try {
+      const data = await api("/bookings/availability", { signal });
+      if (!Array.isArray(data)) throw new Error("The clinic returned an unexpected availability response.");
+      const available = availableBookingSlots(data);
+      if (!signal.aborted) {
+        setSlots(available);
+        setSlotId((current) => available.some((slot) => slot.slotId === current) ? current : "");
+      }
+    } catch (cause) {
+      if (!signal.aborted) setAvailabilityError(messageOf(cause, "load clinic availability"));
+    } finally {
+      if (!signal.aborted) setLoading(false);
+    }
+  }, [api]);
 
-  // A background refresh can remove a slot; don't leave a stale selection.
+  const loadBookings = useCallback(async (signal: AbortSignal): Promise<BookingConfirmation[] | null> => {
+    setBookingsLoading(true);
+    setBookingsError("");
+    try {
+      const data = await api("/bookings", { signal });
+      if (!Array.isArray(data)) throw new Error("The clinic returned an unexpected appointments response.");
+      const list = data.map(parseBookingConfirmation);
+      if (signal.aborted) return null;
+      setBookings(list);
+      return list;
+    } catch (cause) {
+      if (!signal.aborted) setBookingsError(messageOf(cause, "load your appointments"));
+      return null;
+    } finally {
+      if (!signal.aborted) setBookingsLoading(false);
+    }
+  }, [api]);
+
   useEffect(() => {
-    setSlotId((current) => current && slots.some((slot) => slot.slotId === current) ? current : "");
-  }, [slots]);
+    const controller = new AbortController();
+    lifetime.current = controller;
+    queueMicrotask(() => {
+      if (controller.signal.aborted) return;
+      void loadProfile(controller.signal);
+      void loadAvailability(controller.signal);
+      void loadBookings(controller.signal);
+    });
+    return () => controller.abort();
+  }, [loadProfile, loadAvailability, loadBookings]);
 
   async function saveProfile(event: React.SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (profileInFlight.current) return;
+    const signal = lifetime.current?.signal;
+    if (!signal || signal.aborted || profileInFlight.current) return;
     let body: PatientProfileInput;
     try { body = patientProfileBody(profileInput); }
     catch (cause) { setProfileError(messageOf(cause, "validate your profile")); return; }
@@ -134,48 +178,44 @@ function PatientBooking() {
     setSavingProfile(true);
     setProfileError("");
     try {
-      const data = await bookingApi("/patients/me", { method: "POST", body: JSON.stringify(body) });
+      const data = await api("/patients/me", { method: "POST", body: JSON.stringify(body), signal });
       if (!data || typeof data !== "object" || !("patientID" in data)) throw new Error("Could not verify your saved profile. Use Retry profile check before submitting again.");
-      // Invalidate the shared profile cache so every page sees the saved data.
-      await queryClient.invalidateQueries({ queryKey: queryKeys.patientProfile });
+      if (!signal.aborted) setProfileState("ready");
     } catch (cause) {
-      setProfileError(messageOf(cause, "save your profile"));
+      if (!signal.aborted) setProfileError(messageOf(cause, "save your profile"));
     } finally {
       profileInFlight.current = false;
-      setSavingProfile(false);
+      if (!signal.aborted) setSavingProfile(false);
     }
   }
 
   async function book(event: React.SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (inFlight.current || !selectedSlot || !appointmentTime || controlsDisabled) return;
+    const signal = lifetime.current?.signal;
+    if (!signal || signal.aborted || inFlight.current || !selectedSlot || !appointmentTime || controlsDisabled) return;
     const selectedId = selectedSlot.slotId;
     inFlight.current = true;
     setSubmitting(true);
     setBookingError("");
     setSuccess(null);
     try {
-      const data = await bookingApi("/bookings", { method: "POST", body: JSON.stringify(bookingBody(selectedId, appointmentTime)) });
+      const data = await api("/bookings", { method: "POST", body: JSON.stringify(bookingBody(selectedId, appointmentTime)), signal });
       const confirmation = parseBookingConfirmation(data);
       if (confirmation.appointmentStatus !== "BOOKED" || confirmation.slotId !== selectedId) {
         throw new Error("The booking response could not be verified.");
       }
+      if (signal.aborted) return;
       setSuccess(confirmation);
       setSlotId("");
       setAppointmentTime("");
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.bookings }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.availability }),
-      ]);
+      setBookings((current) => [confirmation, ...current.filter((item) => item.appointmentId !== confirmation.appointmentId)]);
+      await loadAvailability(signal);
     } catch (cause) {
+      if (signal.aborted) return;
       if (cause instanceof BookingRequestError && (cause.status === 409 || cause.status === 404)) {
         setBookingError(`${messageOf(cause, "complete the booking")} Please review the refreshed availability and your patient profile.`);
         setSlotId("");
-        await Promise.all([
-          queryClient.invalidateQueries({ queryKey: queryKeys.availability }),
-          queryClient.invalidateQueries({ queryKey: queryKeys.patientProfile }),
-          queryClient.invalidateQueries({ queryKey: queryKeys.bookings }),
-        ]);
+        await Promise.all([loadAvailability(signal), loadProfile(signal), loadBookings(signal)]);
       } else if (cause instanceof BookingRequestError && cause.status >= 400 && cause.status < 500) {
         setBookingError(messageOf(cause, "complete the booking"));
       } else {
@@ -184,21 +224,22 @@ function PatientBooking() {
       }
     } finally {
       inFlight.current = false;
-      setSubmitting(false);
+      if (!signal.aborted) setSubmitting(false);
     }
   }
 
   async function checkBookings() {
-    if (bookingsLoading || inFlight.current || !uncertainSlot) return;
-    const result = await refetchBookings();
-    const list = result.data ?? [];
+    const signal = lifetime.current?.signal;
+    if (!signal || signal.aborted || bookingsLoading || inFlight.current) return;
+    const list = await loadBookings(signal);
+    if (signal.aborted || !list || !uncertainSlot) return;
     const match = list.find((item) => item.slotId === uncertainSlot && item.appointmentStatus === "BOOKED");
     if (match) {
       setSuccess(match);
       setUncertainSlot(null);
       setBookingError("");
       setSlotId("");
-      await refetchAvailability();
+      await loadAvailability(signal);
     } else {
       setBookingError("No confirmed appointment for that time is visible yet. Booking remains paused to avoid a duplicate. Check again shortly or contact the clinic before making another booking.");
     }
@@ -217,20 +258,23 @@ function PatientBooking() {
     (_, index) => fromMinutes(firstAppointmentMinute + index * 5),
   ) : [];
   const controlsDisabled = loading || Boolean(availabilityError) || profileState !== "ready" || submitting || Boolean(uncertainSlot);
+  const signal = () => lifetime.current!.signal;
 
   return (
     <main className="min-h-screen bg-background px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto w-full max-w-3xl">
-        <PageHeader
-          title="Book an appointment"
-          description="Choose a department, doctor, and clinic time. View your appointments from the patient menu."
-        />
-
-        <Link href="/patient/appointments" className="mb-6 inline-flex min-h-11 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white">
-          <Eye size={18} aria-hidden="true" /> View appointments
+        <Link href="/patient" className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-primary hover:underline">
+          <ArrowLeft size={18} aria-hidden="true" /> Back to patient portal
         </Link>
+        <header className="mb-8 mt-8">
+          <CalendarPlus className="mb-3 text-primary" size={30} aria-hidden="true" />
+          <p className="text-sm font-semibold uppercase tracking-widest text-primary">Patient appointments</p>
+          <h1 className="mt-2 text-3xl font-bold sm:text-4xl">Book an appointment</h1>
+          <p className="mt-3 text-neutral-600">Choose a department, doctor, and clinic time. <a href="#my-bookings" className="text-primary underline">View your appointments</a></p>
+        </header>
+
         {profileState === "loading" && <p role="status" className="mb-4">Checking your patient profile...</p>}
-        {profileState === "error" && <div role="alert" className="mb-5"><p>{displayedProfileError}<SessionExpiredAction message={displayedProfileError} returnTo="/patient/book-appointment" /></p><button className="min-h-11 text-primary underline" onClick={() => void profileQuery.refetch()}>Retry profile check</button></div>}
+        {profileState === "error" && <div role="alert" className="mb-5"><p>{profileError}<SessionExpiredAction message={profileError} returnTo="/patient/book-appointment" /></p><button className="min-h-11 text-primary underline" onClick={() => void loadProfile(signal())}>Retry profile check</button></div>}
         {profileState === "missing" && (
           <form onSubmit={saveProfile} aria-busy={savingProfile} className="mb-6 space-y-4 rounded-xl border border-primary/20 bg-surface p-6">
             <h2 className="text-xl font-semibold">Complete your patient profile</h2>
@@ -246,16 +290,15 @@ function PatientBooking() {
                 </label>
               ))}
             </fieldset>
-            {displayedProfileError && <p role="alert" className="text-error">{displayedProfileError}<SessionExpiredAction message={displayedProfileError} returnTo="/patient/book-appointment" /></p>}
+            {profileError && <p role="alert" className="text-error">{profileError}<SessionExpiredAction message={profileError} returnTo="/patient/book-appointment" /></p>}
             <button type="submit" disabled={savingProfile || submitting} className={buttonClass}>{savingProfile ? "Saving profile..." : "Save patient profile"}</button>
-            <button type="button" disabled={savingProfile || submitting} onClick={() => void profileQuery.refetch()} className="ml-3 min-h-11 text-primary underline disabled:opacity-50">Retry profile check</button>
+            <button type="button" disabled={savingProfile || submitting} onClick={() => void loadProfile(signal())} className="ml-3 min-h-11 text-primary underline">Retry profile check</button>
           </form>
         )}
         {loading && <p role="status" className="mb-4 text-sm">Loading clinic availability...</p>}
-        {availabilityError && <div role="alert" className="mb-5 text-error"><p>{availabilityError}<SessionExpiredAction message={availabilityError} returnTo="/patient/book-appointment" /></p><button type="button" disabled={submitting || loading} onClick={() => void refetchAvailability()} className="min-h-11 text-primary underline disabled:opacity-50">{loading ? "Retrying..." : "Retry availability"}</button></div>}
+        {availabilityError && <div role="alert" className="mb-5 text-error"><p>{availabilityError}<SessionExpiredAction message={availabilityError} returnTo="/patient/book-appointment" /></p><button type="button" disabled={submitting} onClick={() => void loadAvailability(signal())} className="min-h-11 underline">Retry availability</button></div>}
         {!loading && !availabilityError && slots.length === 0 && <p role="status" className="mb-5">No appointments can be booked yet. A staff member must add a future open time for an active doctor with a department.</p>}
-        {bookingsError && <p role="alert" className="mb-5 text-error">{bookingsError}</p>}
-        {bookingError && <div role="alert" className="mb-5 rounded-xl border border-error/20 bg-error-background p-4 text-sm text-error"><p>{bookingError}<SessionExpiredAction message={bookingError} returnTo="/patient/book-appointment" /></p>{uncertainSlot && <button type="button" onClick={() => void checkBookings()} className="inline-block min-h-11 pt-3 underline">Check my appointments before booking again</button>}</div>}
+        {bookingError && <div role="alert" className="mb-5 rounded-xl border border-error/20 bg-error-background p-4 text-sm text-error"><p>{bookingError}<SessionExpiredAction message={bookingError} returnTo="/patient/book-appointment" /></p>{uncertainSlot && <a href="#my-bookings" className="inline-block min-h-11 pt-3 underline">Check my appointments before booking again</a>}</div>}
         {success && <section role="status" aria-label="Booking confirmation" className="mb-6"><Confirmation booking={success} /></section>}
 
         <form onSubmit={book} aria-busy={submitting} className="space-y-6 rounded-2xl border border-primary/15 bg-surface p-6 shadow-sm sm:p-8">
@@ -305,9 +348,17 @@ function PatientBooking() {
             <p className="mt-1 text-xs text-neutral-500">You will be served in the order appointments are booked.</p>
           </section>}
           <button type="submit" disabled={controlsDisabled || !selectedSlot || !appointmentTime} className={`${buttonClass} w-full`}>{submitting ? "Booking appointment..." : "Confirm booking"}</button>
-          <button type="button" disabled={submitting || loading || savingProfile} onClick={() => void refetchAvailability()} className="min-h-11 text-primary underline disabled:opacity-50">{loading ? "Refreshing availability..." : "Refresh availability"}</button>
+          <button type="button" disabled={submitting || loading || savingProfile} onClick={() => void loadAvailability(signal())} className="min-h-11 text-primary underline disabled:opacity-50">Refresh availability</button>
         </form>
 
+        <section id="my-bookings" aria-labelledby="my-bookings-heading" aria-busy={bookingsLoading} className="mt-10 scroll-mt-6 space-y-4">
+          <h2 id="my-bookings-heading" className="text-2xl font-bold">My appointments</h2>
+          <p className="text-sm text-neutral-600">These appointments belong to your signed-in account. If a booking response was lost, check here before trying to book again.</p>
+          <button type="button" disabled={bookingsLoading || submitting} onClick={() => void checkBookings()} className={buttonClass}>{bookingsLoading ? "Loading appointments..." : "Check / refresh my appointments"}</button>
+          {bookingsError && <p role="alert" className="text-error">{bookingsError}<SessionExpiredAction message={bookingsError} returnTo="/patient/book-appointment#my-bookings" /></p>}
+          {!bookingsLoading && !bookingsError && bookings.length === 0 && <p role="status">No appointments found.</p>}
+          {bookings.map((booking) => <Confirmation key={booking.appointmentId} booking={booking} />)}
+        </section>
       </div>
     </main>
   );

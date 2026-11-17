@@ -225,6 +225,11 @@ cancellations, the responsible user, the reason, and the resulting change.
 | `app/admin/audit-log/page.tsx` | Audit route entry point |
 | `app/globals.css` | Global CliniQ colour tokens and base control styles |
 
+There is also an older `app/admin/departments.tsx` file in the repository.
+The active App Router route is `app/admin/departments/page.tsx`; the older
+file is not used by the current `/admin/departments` route and can be removed
+or repurposed during cleanup.
+
 ## Planned backend integration
 
 The admin UI should eventually consume the API described in the system design

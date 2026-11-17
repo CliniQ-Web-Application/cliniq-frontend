@@ -14,13 +14,9 @@ export default function CheckInQrScanner({ onDetected, onClose }: { onDetected: 
   const callbackRef = useRef(onDetected);
   const [error, setError] = useState("");
   const [scanning, setScanning] = useState(true);
+  callbackRef.current = onDetected;
 
   useEffect(() => {
-    callbackRef.current = onDetected;
-  }, [onDetected]);
-
-  useEffect(() => {
-    const videoElement = videoRef.current;
     let disposed = false;
     let frame = 0;
     let detecting = false;
@@ -85,7 +81,7 @@ export default function CheckInQrScanner({ onDetected, onClose }: { onDetected: 
       disposed = true;
       cancelAnimationFrame(frame);
       stream?.getTracks().forEach((track) => track.stop());
-      if (videoElement) videoElement.srcObject = null;
+      if (videoRef.current) videoRef.current.srcObject = null;
     };
   }, []);
 

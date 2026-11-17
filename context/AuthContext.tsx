@@ -1,42 +1,76 @@
 "use client";
 
-import { useCallback, useEffect } from "react";
+import React, { createContext, useContext, useEffect, useState } from "react";
+import { User, Session } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { fetchUserProfile, type UserProfile } from "@/lib/auth";
-import { clearQueryCache } from "@/lib/query-client";
-import { useAuthStore } from "@/store/auth-store";
+import { fetchUserProfile, UserProfile, UserRole } from "@/lib/auth";
 
-/**
- * Auth state now lives in the Zustand store (`useAuthStore`) so every page
- * reads the same in-memory snapshot. This component only owns the lifecycle:
- * bootstrapping the session, subscribing to auth changes, and sign-out.
- */
+interface AuthContextType {
+  user: User | null;
+  session: Session | null;
+  profile: UserProfile | null;
+  role: UserRole | null;
+  loading: boolean;
+  signOut: () => Promise<void>;
+  refreshProfile: () => Promise<UserProfile | null>;
+}
+
+const AuthContext = createContext<AuthContextType>({
+  user: null,
+  session: null,
+  profile: null,
+  role: null,
+  loading: true,
+  signOut: async () => {},
+  refreshProfile: async () => null,
+});
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const router = useRouter();
+
+  const loadUserProfile = async (currentUser: User | null) => {
+    if (!currentUser) {
+      setProfile(null);
+      return null;
+    }
+    const userProfile = await fetchUserProfile(currentUser.id);
+    setProfile(userProfile);
+    return userProfile;
+  };
+
   useEffect(() => {
     let mounted = true;
-
-    const loadProfile = async (userId: string): Promise<UserProfile> => {
-      const profile = await fetchUserProfile(userId);
-      if (mounted) useAuthStore.getState().setProfile(profile);
-      return profile;
-    };
 
     async function initAuth() {
       try {
         const { data, error } = await supabase.auth.getSession();
-        if (error) console.error("Error getting session:", error);
+        if (error) {
+          console.error("Error getting session:", error);
+        }
 
-        if (!mounted) return;
-        const session = data?.session ?? null;
-        useAuthStore.getState().setSession(session);
+        if (mounted) {
+          const currentSession = data?.session ?? null;
+          const currentUser = currentSession?.user ?? null;
+          setSession(currentSession);
+          setUser(currentUser);
 
-        if (session?.user) await loadProfile(session.user.id);
-        else useAuthStore.getState().setProfile(null);
+          if (currentUser) {
+            await loadUserProfile(currentUser);
+          } else {
+            setProfile(null);
+          }
+        }
       } catch (err) {
         console.error("Auth init exception:", err);
       } finally {
-        if (mounted) useAuthStore.getState().setLoading(false);
+        if (mounted) {
+          setLoading(false);
+        }
       }
     }
 
@@ -44,25 +78,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
+    } = supabase.auth.onAuthStateChange(async (event, newSession) => {
       if (!mounted) return;
 
-      const store = useAuthStore.getState();
-      store.setSession(session);
+      const newUser = newSession?.user ?? null;
+      setSession(newSession);
+      setUser(newUser);
 
-      // A different user (or no user) must not see the previous user's data.
-      const previous = store.user?.id;
-      if (session?.user && session.user.id !== previous) clearQueryCache();
-
-      if (!session?.user) {
-        store.setProfile(null);
-        store.setLoading(false);
-        return;
+      if (event === "SIGNED_OUT" || !newUser) {
+        setProfile(null);
+        setLoading(false);
+      } else {
+        // Handle SIGNED_IN, INITIAL_SESSION, TOKEN_REFRESHED, USER_UPDATED
+        setLoading(true);
+        await loadUserProfile(newUser);
+        if (mounted) {
+          setLoading(false);
+        }
       }
-
-      store.setLoading(true);
-      await loadProfile(session.user.id);
-      if (mounted) useAuthStore.getState().setLoading(false);
     });
 
     return () => {
@@ -71,45 +104,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  return <>{children}</>;
-}
+  const refreshProfile = async (): Promise<UserProfile | null> => {
+    if (!user) return null;
+    return await loadUserProfile(user);
+  };
 
-export function useAuth() {
-  const user = useAuthStore((state) => state.user);
-  const session = useAuthStore((state) => state.session);
-  const profile = useAuthStore((state) => state.profile);
-  const loading = useAuthStore((state) => state.loading);
-  const router = useRouter();
-
-  const refreshProfile = useCallback(async (): Promise<UserProfile | null> => {
-    const current = useAuthStore.getState().user;
-    if (!current) return null;
-    const next = await fetchUserProfile(current.id);
-    useAuthStore.getState().setProfile(next);
-    return next;
-  }, []);
-
-  const signOut = useCallback(async () => {
+  const signOut = async () => {
     try {
-      useAuthStore.getState().setLoading(true);
+      setLoading(true);
       await supabase.auth.signOut();
-      clearQueryCache();
-      useAuthStore.getState().reset();
+      setUser(null);
+      setSession(null);
+      setProfile(null);
       router.push("/auth/signin");
     } catch (err) {
       console.error("Sign out error:", err);
     } finally {
-      useAuthStore.getState().setLoading(false);
+      setLoading(false);
     }
-  }, [router]);
-
-  return {
-    user,
-    session,
-    profile,
-    role: profile?.role ?? null,
-    loading,
-    signOut,
-    refreshProfile,
   };
+
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        session,
+        profile,
+        role: profile?.role ?? null,
+        loading,
+        signOut,
+        refreshProfile,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error("useAuth must be used within an AuthProvider");
+  }
+  return context;
 }

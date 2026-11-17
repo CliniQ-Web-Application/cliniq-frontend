@@ -6,18 +6,15 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint .",
-    "type-check": "tsc --noEmit",
-    "test": "vitest",
-    "test:run": "vitest run",
-    "test:coverage": "vitest run --coverage",
+    "lint": "eslint",
+    "test": "node --test scripts/booking.test.mjs scripts/bootstrap-admin.test.mjs scripts/admin-management.test.mjs",
     "setup:admin": "node --env-file=.env.local scripts/bootstrap-admin.mjs",
     "setup:staff": "node --env-file=.env.local scripts/bootstrap-staff.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.117.3",
-    "@tanstack/react-query": "^5.107.1",
+    "@tanstack/react-query": "^5.104.3",
     "cn": "^0.4.0",
     "lucide-react": "^1.52.0",
     "next": "^16.4.4",
@@ -28,21 +25,13 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
-    "@testing-library/jest-dom": "^7.0.1",
-    "@testing-library/react": "^16.3.3",
-    "@testing-library/user-event": "^14.6.12",
-    "@types/node": "^26.6.6",
+    "@types/node": "^20",
     "@types/qrcode": "^1.5.6",
-    "@types/react": "19.3.0",
+    "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@vitejs/plugin-react": "^6.3.0",
-    "@vitest/coverage-v8": "^5.1.0",
-    "eslint": "^9.39.5",
-    "eslint-config-next": "^16.4.4",
-    "jsdom": "^31.0.1",
+    "eslint": "^4.0.0",
+    "eslint-config-next": "^0.2.4",
     "tailwindcss": "^4",
-    "typescript": "^5",
-    "vite": "^8.3.8",
-    "vitest": "^5.1.0"
+    "typescript": "^5"
   }
 }

@@ -2,30 +2,27 @@
 
 import React, { useEffect, useState } from "react";
 import { CheckCircle2, Loader2, QrCode, X } from "lucide-react";
-import { useCheckInQr } from "@/lib/queries";
+import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/context/AuthContext";
 
 /**
- * Fetches the check-in QR image for an appointment through the shared query
- * cache and shows it in a modal. The QR encodes a link to /check-in?id=<id>.
+ * Fetches the check-in QR image for an appointment with the caller's bearer token
+ * and shows it in a modal. The QR encodes a link to /check-in?id=<appointmentId>.
  */
 export default function CheckInQr({ appointmentId }: { appointmentId: string }) {
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [src, setSrc] = useState<string | null>(null);
-  const { data: blob, isPending: loading, error, refetch } = useCheckInQr(appointmentId, open);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  // Turn the cached blob into an object URL, revoking it when it changes/closes.
   useEffect(() => {
-    if (!blob) {
-      setSrc(null);
-      return;
-    }
-    const url = URL.createObjectURL(blob);
-    setSrc(url);
-    return () => URL.revokeObjectURL(url);
-  }, [blob]);
     if (!open) return;
     const controller = new AbortController();
     let objectUrl: string | null = null;
+    setLoading(true);
+    setError("");
+    setSrc(null);
     (async () => {
       try {
         const { data, error: sessionError } = await supabase.auth.getSession();
@@ -65,12 +62,7 @@ export default function CheckInQr({ appointmentId }: { appointmentId: string }) 
     <>
       <button
         type="button"
-        onClick={() => {
-          setSrc(null);
-          setError("");
-          setLoading(true);
-          setOpen(true);
-        }}
+        onClick={() => setOpen(true)}
         className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-primary/25 px-3 text-xs font-semibold text-primary transition hover:bg-accent-surface"
       >
         <QrCode size={14} aria-hidden="true" />
@@ -100,8 +92,7 @@ export default function CheckInQr({ appointmentId }: { appointmentId: string }) 
               {loading && <Loader2 className="animate-spin text-primary" size={36} aria-label="Loading QR" />}
               {error && (
                 <div role="alert" className="text-sm text-error">
-                  <p>{error instanceof Error ? error.message : "The QR code could not be loaded."}</p>
-                  <button type="button" onClick={() => void refetch()} className="mt-2 min-h-9 text-primary underline">Retry</button>
+                  <p>{error}</p>
                   <button type="button" onClick={() => setOpen(false)} className="mt-2 min-h-9 text-primary underline">Close</button>
                 </div>
               )}

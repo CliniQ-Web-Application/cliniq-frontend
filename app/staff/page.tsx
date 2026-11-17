@@ -1,23 +1,19 @@
 "use client";
 
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
-import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import {
   CalendarClock, ClipboardList, ListFilter, Plus, QrCode, RefreshCw, Trash2, UserRound, Zap,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
-import { staffApi } from "@/lib/api-client";
-import { queryKeys } from "@/lib/query-keys";
-import { useStaffDashboard } from "@/lib/queries";
+import { supabase } from "@/lib/supabase";
 import Header from "@/components/Header";
 import CheckInQrScanner from "@/components/staff/CheckInQrScanner";
-import AppointmentCard from "@/components/appointments/AppointmentCard";
-import PageHeader from "@/components/ui/PageHeader";
+import ScheduleBroadcast from "@/components/staff/ScheduleBroadcast";
 import SessionExpiredAction from "@/components/auth/SessionExpiredAction";
 import {
-  appointmentTimeValue, inConsultationQueue, isTodayAppointment, myOpenSlots,
+  appointmentTimeValue, createStaffApi, inConsultationQueue, isTodayAppointment, myOpenSlots,
   StaffApiError, todayLocalValue, waitingQueue,
   type QueueEntry, type ScheduleSlot, type StaffAppointment,
 } from "@/lib/staff";
@@ -38,6 +34,11 @@ const STATUS_META: Record<string, { label: string; className: string }> = {
   CANCELLED: { label: "Cancelled", className: "bg-neutral-100 text-neutral-500" },
   NOSHOW: { label: "No-show", className: "bg-neutral-100 text-neutral-500" },
 };
+
+function StatusBadge({ status }: { status: string }) {
+  const meta = STATUS_META[status] ?? { label: status, className: "bg-neutral-100 text-neutral-600" };
+  return <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${meta.className}`}>{meta.label}</span>;
+}
 
 function patientName(appointment: StaffAppointment): string {
   const patient = appointment.patient;
@@ -61,12 +62,18 @@ export default function StaffPortal() {
 
 function StaffPortalInner({ user }: { user: User }) {
   const { profile, refreshProfile } = useAuth();
-  const queryClient = useQueryClient();
+  const userId = user.id;
   const departmentId = profile?.departmentId;
   const myStaffId = profile?.staffId;
   const isDoctor = String(profile?.staffRole ?? "").toUpperCase() === "DOCTOR";
   const today = todayLocalValue();
 
+  const [appointments, setAppointments] = useState<StaffAppointment[]>([]);
+  const [queue, setQueue] = useState<QueueEntry[]>([]);
+  const [slots, setSlots] = useState<ScheduleSlot[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [actionError, setActionError] = useState("");
   const [scannerOpen, setScannerOpen] = useState(false);
@@ -76,62 +83,88 @@ function StaffPortalInner({ user }: { user: User }) {
   const [slotDone, setSlotDone] = useState("");
   const [appointmentSearch, setAppointmentSearch] = useState("");
   const [appointmentStatusFilter, setAppointmentStatusFilter] = useState("ALL");
-  const [profileRefreshing, setProfileRefreshing] = useState(false);
+  const lifetime = useRef<AbortController | null>(null);
 
-  // One shared, auto-refreshing cache for appointments, queues and schedules.
-  const { data, isPending: loading, isFetching: refreshing, error: queryError } = useStaffDashboard();
-  const appointments = data?.appointments ?? [];
-  const queue = data?.queue ?? [];
-  const slots = data?.slots ?? [];
-  const error = queryError ? errorMessage(queryError, "Could not load the clinic data. Please retry.") : "";
+  const api = useMemo(() => createStaffApi({
+    baseUrl: process.env.NEXT_PUBLIC_API_URL,
+    getToken: async () => {
+      const { data, error: sessionError } = await supabase.auth.getSession();
+      return !sessionError && data.session?.user.id === userId ? data.session.access_token : null;
+    },
+    refreshToken: async () => {
+      const { data, error: refreshError } = await supabase.auth.refreshSession();
+      return !refreshError && data.session?.user.id === userId ? data.session.access_token : null;
+    },
+  }), [userId]);
+
+  const loadAll = useCallback(async (signal: AbortSignal, quiet = false) => {
+    if (!quiet) setLoading(true);
+    setRefreshing(true);
+    setError("");
+    try {
+      const [appointmentData, queueData, slotData] = await Promise.all([
+        api("/appointments", { signal }),
+        api("/queues", { signal }),
+        api("/schedules", { signal }),
+      ]);
+      if (signal.aborted) return;
+      setAppointments(Array.isArray(appointmentData) ? appointmentData as StaffAppointment[] : []);
+      setQueue(Array.isArray(queueData) ? queueData as QueueEntry[] : []);
+      setSlots(Array.isArray(slotData) ? slotData as ScheduleSlot[] : []);
+    } catch (cause) {
+      if (!signal.aborted) setError(errorMessage(cause, "Could not load the clinic data. Please retry."));
+    } finally {
+      if (!signal.aborted) {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    }
+  }, [api]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    lifetime.current = controller;
+    queueMicrotask(() => {
+      if (!controller.signal.aborted) void loadAll(controller.signal);
+    });
+    return () => controller.abort();
+  }, [loadAll]);
 
   const refresh = useCallback(async () => {
-    await queryClient.invalidateQueries({ queryKey: queryKeys.staffDashboard });
-  }, [queryClient]);
+    const controller = new AbortController();
+    lifetime.current?.abort();
+    lifetime.current = controller;
+    await loadAll(controller.signal, true);
+  }, [loadAll]);
 
   async function runAction(key: string, action: () => Promise<unknown>, failureMessage: string) {
-    if (busyKey) return;
+    const signal = lifetime.current?.signal;
+    if (!signal || signal.aborted || busyKey) return;
     setBusyKey(key);
     setActionError("");
     try {
       await action();
       await refresh();
     } catch (cause) {
-      setActionError(errorMessage(cause, failureMessage));
+      if (!lifetime.current?.signal.aborted) setActionError(errorMessage(cause, failureMessage));
     } finally {
-      setBusyKey(null);
+      if (!lifetime.current?.signal.aborted) setBusyKey(null);
     }
   }
 
   const checkIn = (appointmentId: string) =>
-    runAction(`checkin-${appointmentId}`, () => staffApi(`/appointments/${encodeURIComponent(appointmentId)}/check-in`, { method: "POST" }), "Could not check the patient in. Please try again.");
+    runAction(`checkin-${appointmentId}`, () => api(`/appointments/${encodeURIComponent(appointmentId)}/check-in`, { method: "POST" }), "Could not check the patient in. Please try again.");
   const complete = (appointmentId: string) =>
-    runAction(`complete-${appointmentId}`, () => staffApi(`/appointments/${appointmentId}/complete`, { method: "POST" }), "Could not complete the consultation. Please try again.");
+    runAction(`complete-${appointmentId}`, () => api(`/appointments/${appointmentId}/complete`, { method: "POST" }), "Could not complete the consultation. Please try again.");
   const callNext = () =>
-    runAction("call-next", () => staffApi("/queues/call-next", { method: "POST" }), "Could not call the next patient. Please try again.");
-  const broadcastDelay = () => {
-    const msg = window.prompt("Enter delay message for waiting patients:", "We are currently running 15 minutes behind schedule.");
-    if (!msg) return;
-    return runAction(
-        "delay-broadcast",
-        () => staffApi("/queues/broadcast-delay", { method: "POST", body: JSON.stringify({ message: msg }) }),
-        "Could not send the delay broadcast."
-    );
-  };
+    runAction("call-next", () => api("/queues/call-next", { method: "POST" }), "Could not call the next patient. Please try again.");
   const markUrgent = (entry: QueueEntry) =>
-    runAction(`urgent-${entry.queueId}`, () => staffApi(`/queues/${entry.queueId}/prioritise`, { method: "POST", body: JSON.stringify({ reason: "Marked urgent by staff" }) }), "Could not flag the queue entry as urgent.");
-  const markNoShow = (appointmentId: string) => {
-    if (!window.confirm("Are you sure you want to mark this patient as a No-Show?")) return;
-    return runAction(
-        `noshow-${appointmentId}`,
-        () => staffApi(`/appointments/${appointmentId}/no-show`, { method: "POST" }),
-        "Could not mark the patient as a no-show."
-    );
-  };
+    runAction(`urgent-${entry.queueId}`, () => api(`/queues/${entry.queueId}/prioritise`, { method: "POST", body: JSON.stringify({ reason: "Marked urgent by staff" }) }), "Could not flag the queue entry as urgent.");
 
   async function createSlot(event: React.SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (slotSaving) return;
+    const signal = lifetime.current?.signal;
+    if (!signal || signal.aborted || slotSaving) return;
     const { slotDate, startTime, endTime, capacity } = slotForm;
     const capacityNumber = Number(capacity);
     if (!slotDate || !startTime || !endTime) {
@@ -150,28 +183,18 @@ function StaffPortalInner({ user }: { user: User }) {
     setSlotError("");
     setSlotDone("");
     try {
-      await staffApi("/schedules", { method: "POST", body: JSON.stringify({ slotDate, startTime, endTime, capacity: capacityNumber }) });
+      await api("/schedules", { method: "POST", body: JSON.stringify({ slotDate, startTime, endTime, capacity: capacityNumber }) });
       setSlotDone(`Clinic window added for ${slotDate}, ${startTime} – ${endTime} (${capacityNumber} patients). It is now available for patients to book.`);
       await refresh();
     } catch (cause) {
-      setSlotError(errorMessage(cause, "Could not add the availability slot. Please try again."));
+      if (!signal.aborted) setSlotError(errorMessage(cause, "Could not add the availability slot. Please try again."));
     } finally {
-      setSlotSaving(false);
+      if (!signal.aborted) setSlotSaving(false);
     }
   }
 
   const removeSlot = (slot: ScheduleSlot) =>
-    runAction(`delete-slot-${slot.slotId}`, () => staffApi(`/schedules/${slot.slotId}`, { method: "DELETE" }), "Could not remove the slot. Please try again.");
-
-  async function reloadProfile() {
-    if (profileRefreshing) return;
-    setProfileRefreshing(true);
-    try {
-      await refreshProfile();
-    } finally {
-      setProfileRefreshing(false);
-    }
-  }
+    runAction(`delete-slot-${slot.slotId}`, () => api(`/schedules/${slot.slotId}`, { method: "DELETE" }), "Could not remove the slot. Please try again.");
 
   const todayAppointments = appointments
     .filter((item) => isTodayAppointment(item, today))
@@ -200,23 +223,24 @@ function StaffPortalInner({ user }: { user: User }) {
       <Header onChanged={() => void refresh()} />
 
       <main className="mx-auto w-full max-w-7xl px-4 pt-24 pb-12 sm:px-6 lg:px-8">
-        <PageHeader
-          title="Clinic queue & availability"
-          description={`Manage today's appointments, the waiting queue, and your availability as ${staffRoleLabel.toLowerCase()}.`}
-          action={
-            <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={() => setScannerOpen(true)} disabled={Boolean(busyKey)} className={buttonClass}>
-                <span className="inline-flex items-center gap-2"><QrCode size={16} aria-hidden="true" /> Scan patient QR</span>
-              </button>
-              <button type="button" onClick={() => void refresh()} disabled={refreshing} className={ghostButtonClass}>
-                <span className="inline-flex items-center gap-2">
-                <RefreshCw size={15} aria-hidden="true" className={refreshing ? "animate-spin" : ""} />
-                {refreshing ? "Refreshing..." : "Refresh"}
-                </span>
-              </button>
-            </div>
-          }
-        />
+        <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-widest text-primary">Staff portal</p>
+            <h1 className="mt-1 text-3xl font-bold leading-tight">Clinic queue & availability</h1>
+          
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => setScannerOpen(true)} disabled={Boolean(busyKey)} className={buttonClass}>
+              <span className="inline-flex items-center gap-2"><QrCode size={16} aria-hidden="true" /> Scan patient QR</span>
+            </button>
+            <button type="button" onClick={() => void refresh()} disabled={refreshing} className={ghostButtonClass}>
+              <span className="inline-flex items-center gap-2">
+              <RefreshCw size={15} aria-hidden="true" className={refreshing ? "animate-spin" : ""} />
+              {refreshing ? "Refreshing..." : "Refresh"}
+              </span>
+            </button>
+          </div>
+        </header>
 
         {loading && <p role="status" className="mb-4">Loading clinic data...</p>}
         {error && (
@@ -232,7 +256,7 @@ function StaffPortalInner({ user }: { user: User }) {
             <p className="mt-1 text-lg font-bold">{staffRoleLabel}</p>
           </div>
           <div className="rounded-xl border border-primary/15 bg-surface p-4 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Today&apos;s appointments</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Today's appointments</p>
             <p className="mt-1 text-2xl font-bold">{loading ? "—" : todayAppointments.length}</p>
           </div>
           <div className="rounded-xl border border-primary/15 bg-surface p-4 shadow-sm">
@@ -250,7 +274,7 @@ function StaffPortalInner({ user }: { user: User }) {
           <section aria-labelledby="today-heading" className="rounded-2xl border border-primary/15 bg-surface p-5 shadow-sm">
             <div className="mb-4 flex items-center justify-between gap-3">
               <h2 id="today-heading" className="flex items-center gap-2 text-lg font-bold">
-                <ClipboardList size={18} aria-hidden="true" className="text-primary" /> Today&apos;s appointments
+                <ClipboardList size={18} aria-hidden="true" className="text-primary" /> Today's appointments
               </h2>
               <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">{visibleAppointments.length} / {todayAppointments.length}</span>
             </div>
@@ -279,38 +303,40 @@ function StaffPortalInner({ user }: { user: User }) {
             {!loading && todayAppointments.length > 0 && visibleAppointments.length === 0 && (
               <p className="text-sm text-neutral-600">No appointments match your search and status filter.</p>
             )}
-            <div className="grid gap-3">
+            <ul className="grid gap-2">
               {visibleAppointments.map((appointment) => {
                 const busyPrefix = busyKey?.endsWith(appointment.appointmentId);
-                const schedule = appointment.slot
-                  ? `${appointment.slot.startTime.slice(0, 5)} – ${appointment.slot.endTime.slice(0, 5)} · Dr. ${appointment.staff?.firstName ?? ""} ${appointment.staff?.lastName ?? ""}`.trim()
-                  : "Walk-in";
                 return (
-                  <AppointmentCard
-                    key={appointment.appointmentId}
-                    title={patientName(appointment)}
-                    subtitle={schedule}
-                    status={appointment.appointmentStatus}
-                    details={appointment.checkInTime ? [{ label: "Checked in", value: appointment.checkInTime.slice(11, 16) }] : []}
-                    footer={
-                      <div className="mt-4 flex flex-wrap items-center gap-2">
-                        {appointment.priority === "URGENT" && <span className="rounded-full bg-error px-2 py-0.5 text-[10px] font-bold uppercase text-white">Urgent</span>}
-                        {appointment.appointmentStatus === "BOOKED" && (
-                          <button type="button" disabled={Boolean(busyKey)} onClick={() => void checkIn(appointment.appointmentId)} className="min-h-9 rounded-lg bg-primary px-3 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50">
-                            {busyPrefix ? "Checking in..." : "Check in"}
-                          </button>
-                        )}
-                        {appointment.appointmentStatus === "INCONSULTATION" && (
-                          <button type="button" disabled={Boolean(busyKey)} onClick={() => void complete(appointment.appointmentId)} className="min-h-9 rounded-lg border border-success/40 px-3 text-xs font-semibold text-success hover:bg-success-background disabled:opacity-50">
-                            {busyPrefix ? "Saving..." : "Complete"}
-                          </button>
-                        )}
-                      </div>
-                    }
-                  />
+                  <li key={appointment.appointmentId} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/10 bg-background p-3">
+                    <div className="min-w-0">
+                      <p className="font-semibold leading-tight">
+                        {patientName(appointment)}
+                        {appointment.priority === "URGENT" && <span className="ml-2 rounded-full bg-error px-2 py-0.5 text-[10px] font-bold uppercase text-white align-middle">Urgent</span>}
+                      </p>
+                      <p className="mt-0.5 text-xs text-neutral-600">
+                        {appointment.slot
+                          ? `${appointment.slot.startTime.slice(0, 5)} – ${appointment.slot.endTime.slice(0, 5)} · Dr. ${appointment.staff?.firstName ?? ""} ${appointment.staff?.lastName ?? ""}`.trim()
+                          : "Walk-in"}
+                        {appointment.checkInTime ? ` · Checked in ${appointment.checkInTime.slice(11, 16)}` : ""}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <StatusBadge status={appointment.appointmentStatus} />
+                      {appointment.appointmentStatus === "BOOKED" && (
+                        <button type="button" disabled={Boolean(busyKey)} onClick={() => void checkIn(appointment.appointmentId)} className="min-h-9 rounded-lg bg-primary px-3 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50">
+                          {busyPrefix ? "Checking in..." : "Check in"}
+                        </button>
+                      )}
+                      {appointment.appointmentStatus === "INCONSULTATION" && (
+                        <button type="button" disabled={Boolean(busyKey)} onClick={() => void complete(appointment.appointmentId)} className="min-h-9 rounded-lg border border-success/40 px-3 text-xs font-semibold text-success hover:bg-success-background disabled:opacity-50">
+                          {busyPrefix ? "Saving..." : "Complete"}
+                        </button>
+                      )}
+                    </div>
+                  </li>
                 );
               })}
-            </div>
+            </ul>
           </section>
 
           <section aria-labelledby="queue-heading" className="rounded-2xl border border-primary/15 bg-surface p-5 shadow-sm">
@@ -318,9 +344,6 @@ function StaffPortalInner({ user }: { user: User }) {
               <h2 id="queue-heading" className="flex items-center gap-2 text-lg font-bold">
                 <ListFilter size={18} aria-hidden="true" className="text-primary" /> Waiting queue
               </h2>
-              <button type="button" disabled={Boolean(busyKey) || waitingEntries.length === 0} onClick={() => void broadcastDelay()} className={ghostButtonClass}>
-                {busyKey === "delay-broadcast" ? "Sending..." : "Announce Delay"}
-              </button>
               <button type="button" disabled={Boolean(busyKey) || waitingEntries.length === 0} onClick={() => void callNext()} className={buttonClass}>
                 {busyKey === "call-next" ? "Calling..." : "Call next patient"}
               </button>
@@ -328,50 +351,42 @@ function StaffPortalInner({ user }: { user: User }) {
             {!loading && waitingEntries.length === 0 && consultingEntries.length === 0 && (
               <p className="text-sm text-neutral-600">Nobody is waiting. Patients appear here after they are checked in.</p>
             )}
-            <div className="grid gap-3">
+            <ol className="grid gap-2">
               {waitingEntries.map((entry) => (
-                <AppointmentCard
-                  key={entry.queueId}
-                  title={patientName(entry.appointment)}
-                  subtitle={entry.department?.name ?? "Department"}
-                  status={entry.appointment.appointmentStatus}
-                  details={[
-                    { label: "Queue position", value: entry.position },
-                    { label: "Checked in", value: entry.appointment.checkInTime?.slice(11, 16) ?? "—" },
-                  ]}
-                  footer={
-                    <div className="mt-4 flex flex-wrap items-center gap-2">
-                      {entry.appointment.priority === "URGENT"
-                        ? <span className="rounded-full bg-error px-2 py-0.5 text-[10px] font-bold uppercase text-white">Urgent</span>
-                        : (
-                          <button type="button" disabled={Boolean(busyKey)} onClick={() => void markUrgent(entry)} className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-error/30 px-3 text-xs font-semibold text-error hover:bg-error-background disabled:opacity-50">
-                            <Zap size={13} aria-hidden="true" /> {busyKey === `urgent-${entry.queueId}` ? "Marking..." : "Mark urgent"}
-                          </button>
-                        )}
-                      <button type="button" disabled={Boolean(busyKey)} onClick={() => void markNoShow(entry.appointment.appointmentId)} className="min-h-9 rounded-lg border border-neutral-300 px-3 text-xs font-semibold text-neutral-600 hover:bg-neutral-100 disabled:opacity-50">
-                        {busyKey === `noshow-${entry.appointment.appointmentId}` ? "Saving..." : "No-Show"}
+                <li key={entry.queueId} className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-200/60 bg-amber-50/60 p-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold leading-tight">{patientName(entry.appointment)}</p>
+                    <p className="mt-0.5 text-xs text-neutral-600">
+                      Booked {entry.appointment.bookedAt?.slice(11, 16) ?? "—"}
+                      {entry.appointment.checkInTime ? ` · Checked in ${entry.appointment.checkInTime.slice(11, 16)}` : ""}
+                      {" · "}{entry.department?.name ?? "Department"}
+                    </p>
+                  </div>
+                  {entry.appointment.priority === "URGENT"
+                    ? <span className="rounded-full bg-error px-2 py-0.5 text-[10px] font-bold uppercase text-white">Urgent</span>
+                    : (
+                      <button type="button" disabled={Boolean(busyKey)} onClick={() => void markUrgent(entry)} className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-error/30 px-3 text-xs font-semibold text-error hover:bg-error-background disabled:opacity-50">
+                        <Zap size={13} aria-hidden="true" /> Mark urgent
                       </button>
-                    </div>
-                  }
-                />
+                    )}
+                </li>
               ))}
-            </div>
+            </ol>
             {consultingEntries.length > 0 && (
               <div className="mt-4">
                 <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">In consultation</h3>
-                <div className="grid gap-3">
+                <ul className="grid gap-2">
                   {consultingEntries.map((entry) => (
-                    <AppointmentCard
-                      key={entry.queueId}
-                      title={patientName(entry.appointment)}
-                      subtitle={`${entry.department?.name ?? "Department"} · Called ${entry.appointment.calledTime?.slice(11, 16) ?? "—"}`}
-                      status={entry.appointment.appointmentStatus}
-                      footer={<button type="button" disabled={Boolean(busyKey)} onClick={() => void complete(entry.appointment.appointmentId)} className="mt-4 min-h-9 rounded-lg border border-success/40 px-3 text-xs font-semibold text-success hover:bg-success-background disabled:opacity-50">
+                    <li key={entry.queueId} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-violet-200/70 bg-violet-50/60 p-3">
+                      <p className="font-semibold leading-tight">{patientName(entry.appointment)}
+                        <span className="ml-2 text-xs font-normal text-neutral-500">called {entry.appointment.calledTime?.slice(11, 16) ?? ""}</span>
+                      </p>
+                      <button type="button" disabled={Boolean(busyKey)} onClick={() => void complete(entry.appointment.appointmentId)} className="min-h-9 rounded-lg border border-success/40 px-3 text-xs font-semibold text-success hover:bg-success-background disabled:opacity-50">
                         {busyKey === `complete-${entry.appointment.appointmentId}` ? "Saving..." : "Complete"}
-                      </button>}
-                    />
+                      </button>
+                    </li>
                   ))}
-                </div>
+                </ul>
               </div>
             )}
           </section>
@@ -429,7 +444,7 @@ function StaffPortalInner({ user }: { user: User }) {
         {isDoctor && myStaffId && <ScheduleBroadcast slots={slots} staffId={myStaffId} api={api} />}
 
         <p className="mt-6 flex items-center gap-2 text-xs text-neutral-500">
-          <UserRound size={12} aria-hidden="true" /> Appointments and queues are live from the clinic API. Signed in as {profile?.email ?? user.email}. <button type="button" disabled={profileRefreshing} className="underline hover:text-primary disabled:opacity-50" onClick={() => void reloadProfile()}>{profileRefreshing ? "Reloading..." : "Reload profile"}</button>
+          <UserRound size={12} aria-hidden="true" /> Appointments and queues are live from the clinic API. Signed in as {profile?.email ?? user.email}. <button type="button" className="underline hover:text-primary" onClick={() => void refreshProfile()}>Reload profile</button>
         </p>
       </main>
       {scannerOpen && <CheckInQrScanner onClose={() => setScannerOpen(false)} onDetected={(appointmentId) => {
