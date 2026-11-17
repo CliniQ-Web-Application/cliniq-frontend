@@ -48,13 +48,15 @@ function PatientProfileManager() {
 
   useEffect(() => {
     if (!profileData) return;
-    setValues({
-      patientName: profileData.patientName,
-      patientSurname: profileData.patientSurname,
-      nationalID: profileData.nationalID,
-      phone: profileData.phone,
+    queueMicrotask(() => {
+      setValues({
+        patientName: profileData.patientName,
+        patientSurname: profileData.patientSurname,
+        nationalID: profileData.nationalID,
+        phone: profileData.phone,
+      });
+      setEditing(false);
     });
-    setEditing(false);
   }, [profileData]);
 
   async function save(event: FormEvent<HTMLFormElement>) {

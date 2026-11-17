@@ -1,14 +1,22 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import jsQR from "jsqr";
 import { Camera, X } from "lucide-react";
+<<<<<<< Updated upstream
 import { appointmentIdFromQr } from "@/lib/check-in-qr";
+=======
+import { appointmentIdFromCheckInQr } from "@/lib/check-in-qr";
+>>>>>>> Stashed changes
 
 type DetectedBarcode = { rawValue?: string };
 type BarcodeDetectorLike = { detect: (source: HTMLVideoElement) => Promise<DetectedBarcode[]> };
 type BarcodeDetectorConstructor = new (options: { formats: string[] }) => BarcodeDetectorLike;
 
+<<<<<<< Updated upstream
 
+=======
+>>>>>>> Stashed changes
 export default function CheckInQrScanner({ onDetected, onClose }: { onDetected: (appointmentId: string) => void; onClose: () => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const callbackRef = useRef(onDetected);
@@ -25,53 +33,91 @@ export default function CheckInQrScanner({ onDetected, onClose }: { onDetected: 
     let frame = 0;
     let detecting = false;
     let handled = false;
+    let warned = false;
     let stream: MediaStream | null = null;
 
-    async function start() {
-      const detectorClass = (window as unknown as { BarcodeDetector?: BarcodeDetectorConstructor }).BarcodeDetector;
-      if (!detectorClass) {
-        setError("QR scanning is not supported in this browser. Use the check-in button on the patient’s appointment in the list instead.");
-        setScanning(false);
-        return;
+    // Shared handler for a decoded raw QR value.
+    const handleValue = (rawValue: string | undefined) => {
+      if (!rawValue || handled) return false;
+      const appointmentId = appointmentIdFromCheckInQr(rawValue);
+      if (appointmentId) {
+        handled = true;
+        callbackRef.current(appointmentId);
+        return true;
       }
+      if (!warned) {
+        setError("That code is not a CliniQ check-in QR. Ask the patient to show their check-in code.");
+        warned = true;
+      }
+      return false;
+    };
+
+    async function start() {
       if (!navigator.mediaDevices?.getUserMedia) {
         setError("Camera access is unavailable. Open this staff portal in a browser that supports camera access.");
         setScanning(false);
         return;
       }
       try {
-        const detector = new detectorClass({ formats: ["qr_code"] });
         stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
         if (disposed) { stream.getTracks().forEach((track) => track.stop()); return; }
         const video = videoRef.current;
         if (!video) return;
         video.srcObject = stream;
         await video.play();
-        const scan = async () => {
-          if (disposed || handled) return;
-          if (!detecting && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-            detecting = true;
-            try {
-              const results = await detector.detect(video);
-              for (const result of results) {
-                if (!result.rawValue) continue;
-                const appointmentId = appointmentIdFromQr(result.rawValue);
-                if (appointmentId) {
-                  handled = true;
-                  callbackRef.current(appointmentId);
-                  return;
+
+        const detectorClass = (window as unknown as { BarcodeDetector?: BarcodeDetectorConstructor }).BarcodeDetector;
+        if (detectorClass) {
+          // Native BarcodeDetector (Chrome/Edge).
+          const detector = new detectorClass({ formats: ["qr_code"] });
+          const scan = async () => {
+            if (disposed || handled) return;
+            if (!detecting && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+              detecting = true;
+              try {
+                const results = await detector.detect(video);
+                for (const result of results) {
+                  if (handleValue(result.rawValue)) return;
                 }
-                setError("That code is not a CliniQ appointment check-in code. Keep the camera open and scan the patient’s check-in QR.");
+              } catch {
+                // Frames can fail to decode while moving; keep scanning.
+              } finally {
+                detecting = false;
               }
-            } catch {
-              // Camera frames can fail to decode while moving; continue scanning.
-            } finally {
-              detecting = false;
             }
+            if (!disposed && !handled) frame = requestAnimationFrame(() => { void scan(); });
+          };
+          void scan();
+        } else {
+          // Fallback for Firefox/Safari: decode video frames with jsQR.
+          const canvas = document.createElement("canvas");
+          const context = canvas.getContext("2d", { willReadFrequently: true });
+          if (!context) {
+            setError("Could not initialise the QR scanner. Try a different browser.");
+            setScanning(false);
+            return;
           }
-          if (!disposed && !handled) frame = requestAnimationFrame(() => { void scan(); });
-        };
-        void scan();
+          const scan = () => {
+            if (disposed || handled) return;
+            if (!detecting && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth && video.videoHeight) {
+              detecting = true;
+              try {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+                const result = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "attemptBoth" });
+                handleValue(result?.data);
+              } catch {
+                // Ignore transient frame read failures.
+              } finally {
+                detecting = false;
+              }
+            }
+            if (!disposed && !handled) frame = requestAnimationFrame(scan);
+          };
+          void scan();
+        }
       } catch {
         if (!disposed) {
           setError("Could not open the camera. Allow camera access and use a secure connection, then try again.");

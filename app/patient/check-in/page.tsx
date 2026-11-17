@@ -7,11 +7,17 @@ import { RefreshCw } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { BookingRequestError } from "@/lib/booking";
 import { useBookings } from "@/lib/queries";
+import { checkInUrl } from "@/lib/check-in-qr";
 import { appointmentStatusPresentation } from "@/lib/appointment-status";
 import PageHeader from "@/components/ui/PageHeader";
 import { checkInQrPayload } from "@/lib/check-in-qr";
 import SessionExpiredAction from "@/components/auth/SessionExpiredAction";
 
+<<<<<<< Updated upstream
+=======
+// The QR encodes a check-in URL; the staff scanner extracts the appointment id from it.
+const qrPayload = (appointmentId: string) => checkInUrl(appointmentId);
+>>>>>>> Stashed changes
 
 function requestError(cause: unknown) {
   if (cause instanceof BookingRequestError && cause.status === 401) return "Your session expired. Sign in again to prepare for check-in.";
@@ -37,16 +43,15 @@ function PatientCheckIn() {
   const displayError = qrError || (error ? requestError(error) : "");
 
   useEffect(() => {
-    setSelectedId((current) => current && bookings.some((item) => item.appointmentId === current)
+    queueMicrotask(() => setSelectedId((current) => current && bookings.some((item) => item.appointmentId === current)
       ? current
-      : bookings.find((item) => item.appointmentStatus.toUpperCase() === "BOOKED")?.appointmentId ?? "");
+      : bookings.find((item) => item.appointmentStatus.toUpperCase() === "BOOKED")?.appointmentId ?? ""));
   }, [bookings]);
 
   const selected = bookings.find((booking) => booking.appointmentId === selectedId);
   useEffect(() => {
     let cancelled = false;
-    setQrImage("");
-    setQrError("");
+    queueMicrotask(() => { if (!cancelled) { setQrImage(""); setQrError(""); } });
     if (!selected || selected.appointmentStatus.toUpperCase() !== "BOOKED") return () => { cancelled = true; };
     queueMicrotask(() => { if (!cancelled) setQrLoading(true); });
     void QRCode.toDataURL(qrPayload(selected.appointmentId), { errorCorrectionLevel: "M", margin: 2, width: 280 })

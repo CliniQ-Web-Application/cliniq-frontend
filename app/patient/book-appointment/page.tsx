@@ -121,7 +121,7 @@ function PatientBooking() {
 
   // A background refresh can remove a slot; don't leave a stale selection.
   useEffect(() => {
-    setSlotId((current) => current && slots.some((slot) => slot.slotId === current) ? current : "");
+    queueMicrotask(() => setSlotId((current) => current && slots.some((slot) => slot.slotId === current) ? current : ""));
   }, [slots]);
 
   async function saveProfile(event: React.SubmitEvent<HTMLFormElement>) {

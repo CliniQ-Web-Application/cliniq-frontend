@@ -92,7 +92,7 @@ function setupAuthMocks() {
             unsubscribe: vi.fn(),
           },
         },
-      } as ReturnType<typeof supabase.auth.onAuthStateChange>;
+      } as unknown as ReturnType<typeof supabase.auth.onAuthStateChange>;
     }
   );
 

@@ -2,9 +2,12 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useQueryClient } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { BookingRequestError } from "@/lib/booking";
+import { bookingApi } from "@/lib/api-client";
+import { queryKeys } from "@/lib/query-keys";
 import { useNotifications } from "@/lib/queries";
 import PageHeader from "@/components/ui/PageHeader";
 import SessionExpiredAction from "@/components/auth/SessionExpiredAction";
@@ -31,8 +34,13 @@ export default function PatientNotificationsPage() {
 
 function PatientNotifications() {
   const [filter, setFilter] = useState<"all" | "unread" | "read">("all");
-  // Same cache as the notification bell, refreshed every 25 seconds.
+  const [markingId, setMarkingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState("");
+  const queryClient = useQueryClient();
+
+  // Same shared cache as the notification bell.
   const { data: notifications = [], isPending: busy, isFetching, error, refetch } = useNotifications();
+<<<<<<< Updated upstream
   const message = error ? errorMessage(error) : "";
   const [busy, setBusy] = useState(true);
   const [markingId, setMarkingId] = useState<string | null>(null);
@@ -89,6 +97,21 @@ function PatientNotifications() {
     } finally {
       inFlight.current = false;
       if (!signal.aborted) setMarkingId(null);
+=======
+  const message = actionError || (error ? errorMessage(error) : "");
+
+  async function markAsRead(id: string) {
+    if (markingId !== null) return;
+    setMarkingId(id);
+    setActionError("");
+    try {
+      await bookingApi(`/notifications/${encodeURIComponent(id)}/read`, { method: "PATCH" });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.notifications });
+    } catch (cause) {
+      setActionError(errorMessage(cause));
+    } finally {
+      setMarkingId(null);
+>>>>>>> Stashed changes
     }
   }
 
@@ -109,7 +132,7 @@ function PatientNotifications() {
         </div>
         <button type="button" disabled={busy || isFetching} onClick={() => void refetch()} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-primary/25 px-3 text-sm font-semibold text-primary disabled:opacity-50"><RefreshCw size={15} aria-hidden="true" />{busy || isFetching ? "Refreshing..." : "Refresh"}</button>
       </div>
-      {message && <div role="alert" className="mb-5 rounded-xl border border-error/20 bg-error-background p-4 text-sm text-error">{message}<SessionExpiredAction message={message} returnTo="/patient/notifications/me" /><button type="button" disabled={busy} onClick={() => void refetch()} className="ml-2 underline disabled:opacity-50">{busy ? "Retrying..." : "Retry"}</button></div>}
+      {message && <div role="alert" className="mb-5 rounded-xl border border-error/20 bg-error-background p-4 text-sm text-error">{message}<SessionExpiredAction message={message} returnTo="/patient/notifications" /><button type="button" disabled={busy} onClick={() => void refetch()} className="ml-2 underline disabled:opacity-50">{busy ? "Retrying..." : "Retry"}</button></div>}
       {!busy && !message && notifications.length === 0 && <p role="status" className="rounded-xl border border-primary/15 bg-surface p-5">You don’t have any notifications yet.</p>}
       {!busy && !message && notifications.length > 0 && filtered.length === 0 && <p role="status" className="rounded-xl border border-primary/15 bg-surface p-5">There are no {filter} notifications.</p>}
       <section aria-label="Notifications" aria-live="polite" aria-busy={busy || isFetching} className="space-y-3">

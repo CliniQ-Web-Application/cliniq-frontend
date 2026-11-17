@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { CheckCircle2, Loader2, QrCode, X } from "lucide-react";
 import { useCheckInQr } from "@/lib/queries";
 
@@ -14,63 +14,25 @@ export default function CheckInQr({ appointmentId }: { appointmentId: string }) 
   const { data: blob, isPending: loading, error, refetch } = useCheckInQr(appointmentId, open);
 
   // Turn the cached blob into an object URL, revoking it when it changes/closes.
+  // Object URL creation happens in a microtask to avoid setState in the effect body.
   useEffect(() => {
-    if (!blob) {
-      setSrc(null);
-      return;
-    }
-    const url = URL.createObjectURL(blob);
-    setSrc(url);
-    return () => URL.revokeObjectURL(url);
-  }, [blob]);
-    if (!open) return;
-    const controller = new AbortController();
-    let objectUrl: string | null = null;
-    (async () => {
-      try {
-        const { data, error: sessionError } = await supabase.auth.getSession();
-        const token = sessionError ? null : data.session?.access_token ?? null;
-        if (!token) throw new Error("Your session has expired. Please sign in again.");
-        const base = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
-        const response = await fetch(`${base}/api/appointments/${appointmentId}/qr`, {
-          cache: "no-store",
-          headers: { Authorization: `Bearer ${token}` },
-          signal: controller.signal,
-        });
-        if (!response.ok) {
-          const data = await response.json().catch(() => null);
-          throw new Error(typeof data?.message === "string" && data.message.trim()
-            ? data.message
-            : "The QR code could not be loaded.");
-        }
-        const blob = await response.blob();
-        if (controller.signal.aborted) return;
-        objectUrl = URL.createObjectURL(blob);
-        setSrc(objectUrl);
-      } catch (cause) {
-        if (!controller.signal.aborted) {
-          setError(cause instanceof Error ? cause.message : "The QR code could not be loaded.");
-        }
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
+    let createdUrl: string | null = null;
+    queueMicrotask(() => {
+      if (!blob) {
+        setSrc(null);
+        return;
       }
-    })();
-    return () => {
-      controller.abort();
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [open, appointmentId, user?.id]);
+      createdUrl = URL.createObjectURL(blob);
+      setSrc(createdUrl);
+    });
+    return () => { if (createdUrl) URL.revokeObjectURL(createdUrl); };
+  }, [blob]);
 
   return (
     <>
       <button
         type="button"
-        onClick={() => {
-          setSrc(null);
-          setError("");
-          setLoading(true);
-          setOpen(true);
-        }}
+        onClick={() => setOpen(true)}
         className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-primary/25 px-3 text-xs font-semibold text-primary transition hover:bg-accent-surface"
       >
         <QrCode size={14} aria-hidden="true" />
