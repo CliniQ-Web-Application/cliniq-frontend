@@ -23,12 +23,54 @@ export default function CheckInQr({ appointmentId }: { appointmentId: string }) 
     setSrc(url);
     return () => URL.revokeObjectURL(url);
   }, [blob]);
+    if (!open) return;
+    const controller = new AbortController();
+    let objectUrl: string | null = null;
+    (async () => {
+      try {
+        const { data, error: sessionError } = await supabase.auth.getSession();
+        const token = sessionError ? null : data.session?.access_token ?? null;
+        if (!token) throw new Error("Your session has expired. Please sign in again.");
+        const base = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
+        const response = await fetch(`${base}/api/appointments/${appointmentId}/qr`, {
+          cache: "no-store",
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          const data = await response.json().catch(() => null);
+          throw new Error(typeof data?.message === "string" && data.message.trim()
+            ? data.message
+            : "The QR code could not be loaded.");
+        }
+        const blob = await response.blob();
+        if (controller.signal.aborted) return;
+        objectUrl = URL.createObjectURL(blob);
+        setSrc(objectUrl);
+      } catch (cause) {
+        if (!controller.signal.aborted) {
+          setError(cause instanceof Error ? cause.message : "The QR code could not be loaded.");
+        }
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    })();
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [open, appointmentId, user?.id]);
 
   return (
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          setSrc(null);
+          setError("");
+          setLoading(true);
+          setOpen(true);
+        }}
         className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-primary/25 px-3 text-xs font-semibold text-primary transition hover:bg-accent-surface"
       >
         <QrCode size={14} aria-hidden="true" />

@@ -420,8 +420,7 @@ function StaffPage() {
   const { user, role, loading: authLoading } = useAuth();
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState("");
-  const [selectedRole, setSelectedRole] = useState("");
-  const [selectedDepartmentId, setSelectedDepartmentId] = useState("");
+  const [staffForm, setStaffForm] = useState<{ staffId: string; role: string; departmentId: string } | null>(null);
   const [saved, setSaved] = useState("");
   const [saveError, setSaveError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -443,10 +442,11 @@ function StaffPage() {
   }, [staff]);
 
   const selected = staff.find((member) => member.staffId === selectedId) ?? null;
-  useEffect(() => {
-    setSelectedRole(selected?.staffRole ?? "");
-    setSelectedDepartmentId(selected?.department?.departmentId ?? "");
-  }, [selected]);
+  // Form values follow the selected row, unless the user is editing them.
+  const selectedRole = staffForm?.staffId === selectedId ? staffForm.role : (selected?.staffRole ?? "");
+  const selectedDepartmentId = staffForm?.staffId === selectedId
+    ? staffForm.departmentId
+    : (selected?.department?.departmentId ?? "");
 
   const visibleStaff = staff.filter((member) => `${member.firstName} ${member.lastName} ${member.staffRole} ${member.department?.name ?? ""}`.toLowerCase().includes(search.toLowerCase()));
 
@@ -536,10 +536,11 @@ function DepartmentsPage() {
   }, [departments]);
 
   const selected = departments.find((item) => item.departmentId === selectedId) ?? null;
-  useEffect(() => {
-    setName(selected?.name ?? "");
-    setOperatingHours(selected?.operatingHours ?? "");
-  }, [selected]);
+  // Form values follow the selected row, unless the user is editing them.
+  const name = departmentForm?.id === selectedId ? departmentForm.name : (selected?.name ?? "");
+  const operatingHours = departmentForm?.id === selectedId
+    ? departmentForm.operatingHours
+    : (selected?.operatingHours ?? "");
 
   async function saveDepartment() {
     if (!name.trim() || !operatingHours.trim() || busy) {

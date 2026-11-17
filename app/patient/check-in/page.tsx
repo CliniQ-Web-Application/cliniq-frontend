@@ -48,7 +48,7 @@ function PatientCheckIn() {
     setQrImage("");
     setQrError("");
     if (!selected || selected.appointmentStatus.toUpperCase() !== "BOOKED") return () => { cancelled = true; };
-    setQrLoading(true);
+    queueMicrotask(() => { if (!cancelled) setQrLoading(true); });
     void QRCode.toDataURL(qrPayload(selected.appointmentId), { errorCorrectionLevel: "M", margin: 2, width: 280 })
       .then((image) => { if (!cancelled) setQrImage(image); })
       .catch(() => { if (!cancelled) setQrError("Could not prepare your check-in QR code. Please select the appointment again."); })

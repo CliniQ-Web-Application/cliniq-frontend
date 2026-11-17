@@ -232,7 +232,7 @@ function StaffPortalInner({ user }: { user: User }) {
             <p className="mt-1 text-lg font-bold">{staffRoleLabel}</p>
           </div>
           <div className="rounded-xl border border-primary/15 bg-surface p-4 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Today's appointments</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Today&apos;s appointments</p>
             <p className="mt-1 text-2xl font-bold">{loading ? "—" : todayAppointments.length}</p>
           </div>
           <div className="rounded-xl border border-primary/15 bg-surface p-4 shadow-sm">
@@ -250,7 +250,7 @@ function StaffPortalInner({ user }: { user: User }) {
           <section aria-labelledby="today-heading" className="rounded-2xl border border-primary/15 bg-surface p-5 shadow-sm">
             <div className="mb-4 flex items-center justify-between gap-3">
               <h2 id="today-heading" className="flex items-center gap-2 text-lg font-bold">
-                <ClipboardList size={18} aria-hidden="true" className="text-primary" /> Today's appointments
+                <ClipboardList size={18} aria-hidden="true" className="text-primary" /> Today&apos;s appointments
               </h2>
               <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">{visibleAppointments.length} / {todayAppointments.length}</span>
             </div>

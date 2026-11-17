@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { CalendarPlus, CheckCircle2, Clock, ClipboardList, QrCode, Loader2, UserRound, Bell, XCircle } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
@@ -89,27 +89,14 @@ export default function PatientPortal() {
           description="Manage appointments, check in, and follow your queue status."
         />
 
-        <section className="mt-8 grid gap-4 sm:grid-cols-2" aria-label="Patient actions">
-          {actions.map(({ icon: Icon, title, description, href }) => (
-            <Link
-              key={title}
-              href={href}
-              className="group flex min-h-28 items-center gap-5 rounded-xl border border-primary/20 bg-surface p-6 transition hover:border-primary"
-            >
-              <span className="flex shrink-0 items-center justify-center rounded-lg bg-accent-surface p-3">
-                <Icon aria-hidden="true" className="text-primary" size={24} />
-              </span>
-              <span>
-                <strong className="block text-lg font-semibold text-foreground group-hover:text-primary">
-                  {title}
-                </strong>
-                <span className="mt-0.5 block text-sm text-neutral-600">
-                  {description}
-                </span>
-              </span>
-            </Link>
-          ))}
-        </section>
+        <div className="mt-8 flex flex-wrap gap-3">
+          <Link href="/patient/book-appointment" className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white">
+            <CalendarPlus size={17} /> Book appointment
+          </Link>
+          <Link href="/patient/book-appointment#my-bookings" className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-primary/25 px-4 text-sm font-semibold text-primary">
+            View booking availability
+          </Link>
+        </div>
 
         {statusMessage && <p role="status" className="mt-5 rounded-lg border border-primary/20 bg-accent-surface p-3 text-sm">{statusMessage}</p>}
 
