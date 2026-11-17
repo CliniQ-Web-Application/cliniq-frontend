@@ -145,6 +145,20 @@ export default function PatientPortal() {
                   }
                   href={`/patient/appointments/${encodeURIComponent(booking.appointmentId)}`}
                 />
+                    <span className="rounded-full bg-accent-surface px-2.5 py-1 text-xs font-semibold text-primary">{booking.appointmentStatus}</span>
+                  </div>
+                  <p className="mt-4 flex items-center gap-2 text-sm"><Clock size={16} /> {booking.appointmentTime?.slice(0, 5) ?? `${booking.startTime} – ${booking.endTime}`}</p>
+                  <div className="mt-5 flex flex-wrap gap-2">
+                    {booking.appointmentStatus === "BOOKED" && (
+                      <>
+                        <button type="button" onClick={() => updateBooking(booking.appointmentId, "check-in")} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-primary px-3 text-sm font-semibold text-white"><CheckCircle2 size={16} /> Check in</button>
+                        <button type="button" onClick={() => updateBooking(booking.appointmentId, "cancel")} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-red-200 px-3 text-sm font-semibold text-red-700"><XCircle size={16} /> Cancel</button>
+                      </>
+                    )}
+                    {booking.appointmentStatus === "WAITING" && <span className="text-sm font-semibold text-success">You are in the queue.</span>}
+                    <Link href={`/patient/appointments/${encodeURIComponent(booking.appointmentId)}`} className="inline-flex min-h-10 items-center px-3 text-sm font-semibold text-primary underline">View details</Link>
+                  </div>
+                </article>
               ))}
             </div>
           )}

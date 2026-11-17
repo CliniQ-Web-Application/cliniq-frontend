@@ -9,9 +9,9 @@ import { BookingRequestError } from "@/lib/booking";
 import { useBookings } from "@/lib/queries";
 import { appointmentStatusPresentation } from "@/lib/appointment-status";
 import PageHeader from "@/components/ui/PageHeader";
+import { checkInQrPayload } from "@/lib/check-in-qr";
 import SessionExpiredAction from "@/components/auth/SessionExpiredAction";
 
-const qrPayload = (appointmentId: string) => JSON.stringify({ type: "CLINIQ_CHECK_IN", appointmentId });
 
 function requestError(cause: unknown) {
   if (cause instanceof BookingRequestError && cause.status === 401) return "Your session expired. Sign in again to prepare for check-in.";

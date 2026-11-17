@@ -2,23 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Camera, X } from "lucide-react";
+import { appointmentIdFromQr } from "@/lib/check-in-qr";
 
 type DetectedBarcode = { rawValue?: string };
 type BarcodeDetectorLike = { detect: (source: HTMLVideoElement) => Promise<DetectedBarcode[]> };
 type BarcodeDetectorConstructor = new (options: { formats: string[] }) => BarcodeDetectorLike;
 
-function appointmentIdFromQr(rawValue: string): string | null {
-  try {
-    const value: unknown = JSON.parse(rawValue);
-    if (!value || typeof value !== "object") return null;
-    const payload = value as Record<string, unknown>;
-    return payload.type === "CLINIQ_CHECK_IN" && typeof payload.appointmentId === "string" && payload.appointmentId.trim()
-      ? payload.appointmentId.trim()
-      : null;
-  } catch {
-    return null;
-  }
-}
 
 export default function CheckInQrScanner({ onDetected, onClose }: { onDetected: (appointmentId: string) => void; onClose: () => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);

@@ -13,6 +13,7 @@ export interface BookingSlot {
     firstName: string;
     lastName: string;
     staffRole: string;
+    availabilityStatus?: string | null;
     active: boolean;
     department: Department | null;
   } | null;
