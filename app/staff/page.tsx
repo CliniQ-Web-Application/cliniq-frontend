@@ -10,6 +10,7 @@ import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
 import Header from "@/components/Header";
 import CheckInQrScanner from "@/components/staff/CheckInQrScanner";
+import ScheduleBroadcast from "@/components/staff/ScheduleBroadcast";
 import SessionExpiredAction from "@/components/auth/SessionExpiredAction";
 import {
   appointmentTimeValue, createStaffApi, inConsultationQueue, isTodayAppointment, myOpenSlots,
@@ -439,6 +440,8 @@ function StaffPortalInner({ user }: { user: User }) {
             </div>
           </section>
         )}
+
+        {isDoctor && myStaffId && <ScheduleBroadcast slots={slots} staffId={myStaffId} api={api} />}
 
         <p className="mt-6 flex items-center gap-2 text-xs text-neutral-500">
           <UserRound size={12} aria-hidden="true" /> Appointments and queues are live from the clinic API. Signed in as {profile?.email ?? user.email}. <button type="button" className="underline hover:text-primary" onClick={() => void refreshProfile()}>Reload profile</button>

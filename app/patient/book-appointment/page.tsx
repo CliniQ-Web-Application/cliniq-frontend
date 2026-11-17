@@ -8,6 +8,7 @@ import { useAuth } from "@/context/AuthContext";
 import CheckInQr from "@/components/booking/CheckInQr";
 import { supabase } from "@/lib/supabase";
 import { appointmentStatusPresentation } from "@/lib/appointment-status";
+import { departmentAvailabilitySummary, doctorAvailabilityPresentation } from "@/lib/availability";
 import SessionExpiredAction from "@/components/auth/SessionExpiredAction";
 import {
   availableBookingSlots, bookingBody, BookingRequestError, createBookingApi,
@@ -311,7 +312,7 @@ function PatientBooking({ user }: { user: User }) {
             <label className="block text-sm font-semibold">Doctor
               <select required value={staffId} disabled={controlsDisabled || !departmentId || doctors.length === 0} className={inputClass} onChange={(event) => { setStaffId(event.target.value); setDate(""); setSlotId(""); setAppointmentTime(""); }}>
                 <option value="">{departmentId && doctors.length === 0 ? "No doctors with open times" : "Select a doctor"}</option>
-                {doctors.map((doctor) => <option key={doctor.staffId} value={doctor.staffId}>Dr. {doctor.firstName} {doctor.lastName}</option>)}
+                {doctors.map((doctor) => <option key={doctor.staffId} value={doctor.staffId}>Dr. {doctor.firstName} {doctor.lastName} · {doctorAvailabilityPresentation(doctor.availabilityStatus).label}</option>)}
               </select>
             </label>
             <label className="block text-sm font-semibold">Appointment date
@@ -333,10 +334,16 @@ function PatientBooking({ user }: { user: User }) {
               </select>
             </label>
           </fieldset>
+          {departmentId && <section aria-label="Current department availability" className="rounded-xl border border-primary/15 bg-background p-4 text-sm">
+            <h2 className="font-semibold">{departments.find((item) => item.departmentId === departmentId)?.name} · current doctor availability</h2>
+            <p className="mt-1">{departmentAvailabilitySummary(doctors)}</p>
+            <p className="mt-2 text-xs text-neutral-600">These statuses describe doctors with bookable windows right now, not a guarantee of their availability on a future appointment date. Use Refresh availability to check for changes.</p>
+          </section>}
           <p className="text-xs text-neutral-600">Dates and times use the clinic timezone. Selecting a time does not reserve it; your appointment is confirmed only after the clinic saves it.</p>
           {selectedSlot && <section aria-label="Appointment selection" aria-live="polite" className="rounded-xl bg-background p-4 text-sm">
             <h2 className="font-semibold">Your selection — not booked</h2>
             <p className="mt-2">{selectedSlot.staff?.department?.name} · Dr. {selectedSlot.staff?.firstName} {selectedSlot.staff?.lastName}</p>
+            <span className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${doctorAvailabilityPresentation(selectedSlot.staff?.availabilityStatus).className}`}>Currently: {doctorAvailabilityPresentation(selectedSlot.staff?.availabilityStatus).label}</span>
             <p>{selectedSlot.slotDate} · {appointmentTime || "Choose a time"}{slotCapacityLabel(selectedSlot) ? ` · ${slotCapacityLabel(selectedSlot)}` : ""}</p>
             <p className="mt-1 text-xs text-neutral-500">You will be served in the order appointments are booked.</p>
           </section>}
