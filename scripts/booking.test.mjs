@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { readFile } from "node:fs/promises";
+import { stripTypeScriptTypes } from "node:module";
+import { Script } from "node:vm";
+import { appointmentIdFromQr, checkInQrPayload } from "../lib/check-in-qr.ts";
+import { hasActiveQueue, readQueue } from "../lib/queue.ts";
+import { departmentAvailabilitySummary, doctorAvailabilityPresentation } from "../lib/availability.ts";
+import { broadcastRecipientCount, broadcastSchedules, scheduleBroadcastBody } from "../lib/schedule-broadcast.ts";
 import {
   availableBookingSlots, localDateValue, bookingBody, patientProfileBody,
   parseBookingConfirmation, BookingRequestError, createBookingApi, slotCapacityLabel,
@@ -20,6 +27,16 @@ const slot = {
     department: { departmentId: "department-1", name: "General" },
   },
 };
+const notificationSource = await readFile(new URL("../lib/notifications.ts", import.meta.url), "utf8");
+const notificationScript = new Script(`${stripTypeScriptTypes(notificationSource.replace(/^import[^\n]+\n/, "")).replace(/export /g, "")}\n({ fetchMyNotifications, markNotificationRead })`);
+function notificationClient(fetcher, session = { access_token: "test-token" }) {
+  return notificationScript.runInNewContext({
+    supabase: { auth: { getSession: async () => ({ data: { session } }) } },
+    process: { env: { NEXT_PUBLIC_API_URL: "https://clinic.example" } },
+    fetch: fetcher,
+  });
+}
+
 const today = "2026-10-23";
 const confirmation = {
   appointmentId: "appointment-1", appointmentStatus: "BOOKED", slotId: "slot-1",
@@ -31,6 +48,61 @@ const json = (body, status = 200) => new Response(JSON.stringify(body), { status
 const makeApi = (fetcher, overrides = {}) => createBookingApi({
   baseUrl: "https://clinic.example/", getToken: async () => "test-token",
   refreshToken: async () => "refreshed-token", fetcher, ...overrides,
+});
+
+test("doctor availability labels match the backend enum and tolerate unknown status", () => {
+  for (const [status, label] of Object.entries({ AVAILABLE: "In office", ONCALL: "On call", EMERGENCY: "Emergency", UNAVAILABLE: "Unavailable" })) {
+    assert.equal(doctorAvailabilityPresentation(status).label, label);
+    assert.ok(doctorAvailabilityPresentation(status).className);
+  }
+  for (const status of [undefined, null, "NEW_STATUS"]) assert.equal(doctorAvailabilityPresentation(status).label, "Status unknown");
+});
+
+test("department availability counts unique doctors rather than each open window", () => {
+  const doctors = [
+    { staffId: "doctor-1", availabilityStatus: "AVAILABLE" },
+    { staffId: "doctor-1", availabilityStatus: "AVAILABLE" },
+    { staffId: "doctor-2", availabilityStatus: "ONCALL" },
+    { staffId: "doctor-3", availabilityStatus: "UNAVAILABLE" },
+  ];
+  assert.equal(departmentAvailabilitySummary(doctors), "1 in office · 1 on call · 1 unavailable");
+  assert.equal(departmentAvailabilitySummary([]), "No doctors with bookable windows");
+});
+
+test("current doctor status is informational and does not hide future booking windows", () => {
+  for (const availabilityStatus of ["AVAILABLE", "ONCALL", "EMERGENCY", "UNAVAILABLE", null]) {
+    const candidate = { ...slot, staff: { ...slot.staff, availabilityStatus } };
+    assert.deepEqual(availableBookingSlots([candidate]), [candidate]);
+  }
+});
+
+test("schedule broadcasts validate delay minutes and omit them for absence notices", () => {
+  assert.deepEqual(scheduleBroadcastBody({ type: "DELAY", message: " Traffic delay ", delayMinutes: "20" }), { type: "DELAY", message: "Traffic delay", delayMinutes: 20 });
+  assert.deepEqual(scheduleBroadcastBody({ type: "ABSENCE", message: " Please contact reception ", delayMinutes: "20" }), { type: "ABSENCE", message: "Please contact reception" });
+  for (const delayMinutes of ["", " ", "0", "-1", "1.5", "1441", "bad"]) {
+    assert.throws(() => scheduleBroadcastBody({ type: "DELAY", message: "Delay", delayMinutes }), /whole minutes/);
+  }
+  for (const message of ["", " ", "x".repeat(501)]) {
+    assert.throws(() => scheduleBroadcastBody({ type: "ABSENCE", message, delayMinutes: "" }), /1–500/);
+  }
+});
+
+test("broadcast windows include full and older clinics without relying on the browser date", () => {
+  const full = { ...slot, slotId: "full", slotStatus: "BOOKED" };
+  const earlier = { ...slot, slotId: "today", slotDate: today };
+  const blocked = { ...slot, slotId: "blocked", slotStatus: "BLOCKED", slotDate: "2026-10-25" };
+  const input = [full, { ...slot, staff: { ...slot.staff, staffId: "another-doctor" } },
+    { ...slot, slotId: "older", slotDate: "2026-10-22" }, blocked, earlier];
+  assert.deepEqual(broadcastSchedules(input, "doctor-1").map((item) => item.slotId), ["blocked", "full", "today", "older"]);
+  assert.equal(input[0], full);
+});
+
+test("broadcast success counts accept zero and reject malformed responses", () => {
+  assert.equal(broadcastRecipientCount({ recipientCount: 0 }), 0);
+  assert.equal(broadcastRecipientCount({ recipientCount: 3 }), 3);
+  for (const value of [null, {}, { recipientCount: -1 }, { recipientCount: 1.5 }, { recipientCount: "3" }]) {
+    assert.throws(() => broadcastRecipientCount(value), /avoid duplicate notices/);
+  }
 });
 
 test("lists open schedules for active doctors with departments", () => {
@@ -188,4 +260,118 @@ test("passes cancellation signal to fetch", async () => {
   const controller = new AbortController();
   const api = makeApi(async (_url, init) => { assert.equal(init.signal, controller.signal); return json([]); });
   await api("/bookings", { signal: controller.signal });
+});
+
+test("saves existing profiles via authenticated PUT with editable fields only", async () => {
+  const input = { patientName: " First ", patientSurname: " Last ", nationalID: " 123 ", phone: " 456 " };
+  const body = patientProfileBody(input);
+  const api = makeApi(async (url, init) => {
+    assert.equal(url, "https://clinic.example/api/patients/me");
+    assert.equal(init.method, "PUT");
+    assert.equal(init.headers.Authorization, "Bearer test-token");
+    assert.deepEqual(JSON.parse(init.body), body);
+    return json(body);
+  });
+  assert.deepEqual(await api("/patients/me", { method: "PUT", body: JSON.stringify(body) }), body);
+});
+
+test("notification list and read receipts use authenticated uncached recipient endpoints", async () => {
+  const notification = { notificationId: "notification-1", isRead: false, message: "Clinic update" };
+  const calls = [];
+  const client = notificationClient(async (url, init) => {
+    calls.push({ url, init });
+    return json(init.method === "PATCH" ? { ...notification, isRead: true } : [notification]);
+  });
+  assert.deepEqual(await client.fetchMyNotifications(), [notification]);
+  assert.deepEqual(await client.markNotificationRead(notification.notificationId), { ...notification, isRead: true });
+  assert.deepEqual(calls.map(({ url }) => url), ["https://clinic.example/api/notifications/me", "https://clinic.example/api/notifications/notification-1/read"]);
+  assert.deepEqual(calls.map(({ init }) => init.method), ["GET", "PATCH"]);
+  for (const { init } of calls) {
+    assert.equal(init.headers.Authorization, "Bearer test-token");
+    assert.equal(init.cache, "no-store");
+    assert.equal(init.body, undefined);
+  }
+});
+
+test("notification read failures remain errors and never report a successful read", async () => {
+  for (const status of [401, 403, 404, 500]) {
+    const client = notificationClient(async () => json({}, status));
+    await assert.rejects(client.markNotificationRead("notification-1"), /Could not mark this notification as read/);
+  }
+  const client = notificationClient(async () => { throw new Error("Must not fetch without session"); }, null);
+  await assert.rejects(client.markNotificationRead("notification-1"), /No session/);
+});
+
+test("notification read receipts encode the notification identifier as a path segment", async () => {
+  const client = notificationClient(async (url) => {
+    assert.equal(url, "https://clinic.example/api/notifications/id%2Fwith%3Fdelimiters/read");
+    return json({ isRead: true });
+  });
+  await client.markNotificationRead("id/with?delimiters");
+});
+
+test("queue snapshots use the live server position, status, and estimated minutes", () => {
+  const snapshot = readQueue({ appointmentId: confirmation.appointmentId, queuePosition: 3, queueStatus: "WAITING", estimatedWaitMinutes: 30 }, confirmation);
+  assert.deepEqual(snapshot, {
+    appointmentId: confirmation.appointmentId, queuePosition: 3, queueStatus: "WAITING", estimatedWaitMinutes: 30, error: "",
+  });
+  assert.equal(readQueue({ queuePosition: 2, queueStatus: "WAITING", estimatedWaitMinutes: 15 }, confirmation).queuePosition, 2);
+  assert.equal(readQueue({ queuePosition: 1, queueStatus: "WAITING", estimatedWaitMinutes: 0 }, confirmation).estimatedWaitMinutes, 0);
+});
+
+test("only waiting and in-consultation appointments request live queue details", () => {
+  for (const status of ["WAITING", "INCONSULTATION", " waiting "]) assert.equal(hasActiveQueue(status), true);
+  for (const status of ["BOOKED", "COMPLETED", "CANCELLED", "NOSHOW"]) {
+    assert.equal(hasActiveQueue(status), false);
+    const snapshot = readQueue({}, { ...confirmation, appointmentStatus: status });
+    assert.equal(snapshot.queueStatus, status);
+    assert.equal(snapshot.queuePosition, null);
+    assert.equal(snapshot.estimatedWaitMinutes, null);
+  }
+});
+
+test("queue snapshots do not show stale positions after a patient is called or leaves", () => {
+  for (const status of ["INCONSULTATION", "COMPLETED", "CANCELLED", "NOSHOW"]) {
+    const snapshot = readQueue({ position: 4, queueStatus: status, estimatedWaitMinutes: 0 }, confirmation);
+    assert.equal(snapshot.queueStatus, status);
+    assert.equal(snapshot.queuePosition, null);
+    assert.equal(snapshot.estimatedWaitMinutes, 0);
+  }
+});
+
+test("queue snapshots reject invalid positions, estimates, and non-object responses", () => {
+  for (const queuePosition of [0, -1, 1.5, NaN, Infinity, "2", null]) {
+    assert.equal(readQueue({ queuePosition, queueStatus: "WAITING" }, confirmation).queuePosition, null);
+  }
+  for (const estimatedWaitMinutes of [-1, NaN, Infinity, "15", null]) {
+    assert.equal(readQueue({ estimatedWaitMinutes }, confirmation).estimatedWaitMinutes, null);
+  }
+  for (const value of [null, [], "invalid"]) assert.throws(() => readQueue(value, confirmation), /unexpected queue response/);
+});
+
+test("patient QR codes use the backend check-in URL format and round-trip through the scanner", () => {
+  const id = "cc54d085-5698-40c1-917e-d37db83ba46a";
+  const payload = checkInQrPayload(id, "https://clinic.example/");
+  assert.equal(payload, `https://clinic.example/check-in?id=${id}`);
+  assert.equal(appointmentIdFromQr(payload), id);
+  assert.equal(appointmentIdFromQr(`http://localhost:3000/check-in?id=${id}`), id);
+  assert.equal(appointmentIdFromQr(`/check-in?id=${id}`), id);
+  assert.equal(appointmentIdFromQr(`/check-in?other=value&id=%20${id}%20`), id);
+});
+
+test("scanner remains compatible with legacy patient JSON QR codes", () => {
+  assert.equal(appointmentIdFromQr(JSON.stringify({ type: "CLINIQ_CHECK_IN", appointmentId: " appointment-1 " })), "appointment-1");
+});
+
+test("scanner rejects invalid or unrelated QR payloads without throwing", () => {
+  for (const raw of [
+    "", "not a QR payload", "{broken", "null", "42", '"appointment-1"', "[]",
+    JSON.stringify({ type: "OTHER", appointmentId: "appointment-1" }),
+    JSON.stringify({ type: "CLINIQ_CHECK_IN" }),
+    JSON.stringify({ type: "CLINIQ_CHECK_IN", appointmentId: 123 }),
+    JSON.stringify({ type: "CLINIQ_CHECK_IN", appointmentId: " " }),
+    "/check-in", "/check-in?id=", "/check-in?id=%20", "/other?id=appointment-1",
+    "https://clinic.example/?id=appointment-1", "https://[invalid/check-in?id=appointment-1",
+    "javascript:/check-in?id=appointment-1", "ftp://clinic.example/check-in?id=appointment-1",
+  ]) assert.equal(appointmentIdFromQr(raw), null, raw);
 });

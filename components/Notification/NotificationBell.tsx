@@ -8,6 +8,24 @@ export default function NotificationBell() {
     // Shared, periodically refreshed cache (also used by the notifications page).
     const { data: items = [], isPending: loading } = useNotifications();
 
+    async function markAsRead(id: string) {
+        if (saving.current) return;
+        saving.current = true;
+        mutationVersion.current++;
+        setMarkingId(id);
+        setError("");
+        try {
+            const updated = await markNotificationRead(id);
+            setItems((current) => current.map((item) => item.notificationId === id ? updated : item));
+        } catch (cause) {
+            setError(cause instanceof Error ? cause.message : "Could not mark this notification as read.");
+        } finally {
+            mutationVersion.current++;
+            saving.current = false;
+            setMarkingId(null);
+        }
+    }
+
     const unreadCount = items.filter((n) => !n.isRead).length;
 
     return (
@@ -39,6 +57,7 @@ export default function NotificationBell() {
                             {items.map((n) => (
                                 <li key={n.notificationId} className={`p-3 text-sm ${n.isRead ? 'text-gray-500' : 'bg-blue-50 font-medium'}`}>
                                     <p>{n.message}</p>
+                                    {!n.isRead && <button type="button" disabled={markingId !== null} onClick={() => { void markAsRead(n.notificationId); }} className="mt-2 min-h-10 text-xs font-semibold text-blue-700 underline disabled:opacity-50">{markingId === n.notificationId ? "Marking as read..." : "Mark as read"}</button>}
                                     <span className="text-xs text-gray-400 mt-1 block">
                     {n.createdAt ? new Date(n.createdAt).toLocaleString() : "Date unavailable"}
                   </span>

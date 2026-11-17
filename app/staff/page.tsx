@@ -426,6 +426,8 @@ function StaffPortalInner({ user }: { user: User }) {
           </section>
         )}
 
+        {isDoctor && myStaffId && <ScheduleBroadcast slots={slots} staffId={myStaffId} api={api} />}
+
         <p className="mt-6 flex items-center gap-2 text-xs text-neutral-500">
           <UserRound size={12} aria-hidden="true" /> Appointments and queues are live from the clinic API. Signed in as {profile?.email ?? user.email}. <button type="button" disabled={profileRefreshing} className="underline hover:text-primary disabled:opacity-50" onClick={() => void reloadProfile()}>{profileRefreshing ? "Reloading..." : "Reload profile"}</button>
         </p>

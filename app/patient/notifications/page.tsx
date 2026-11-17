@@ -34,6 +34,63 @@ function PatientNotifications() {
   // Same cache as the notification bell, refreshed every 25 seconds.
   const { data: notifications = [], isPending: busy, isFetching, error, refetch } = useNotifications();
   const message = error ? errorMessage(error) : "";
+  const [busy, setBusy] = useState(true);
+  const [markingId, setMarkingId] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const request = useRef<AbortController | null>(null);
+  const inFlight = useRef(false);
+  const api = useMemo(() => createBookingApi({
+    baseUrl: process.env.NEXT_PUBLIC_API_URL,
+    getToken: async () => {
+      const { data, error: authError } = await supabase.auth.getSession();
+      return !authError && data.session?.user.id === user.id ? data.session.access_token : null;
+    },
+    refreshToken: async () => {
+      const { data, error: authError } = await supabase.auth.refreshSession();
+      return !authError && data.session?.user.id === user.id ? data.session.access_token : null;
+    },
+  }), [user.id]);
+
+  const load = useCallback(async (signal?: AbortSignal) => {
+    if (inFlight.current || signal?.aborted) return;
+    inFlight.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      const data = await api("/notifications/me", { signal });
+      const result = normalizeNotifications(data);
+      if (!signal?.aborted) setNotifications(result);
+    } catch (cause) {
+      if (!signal?.aborted) setError(errorMessage(cause));
+    } finally {
+      inFlight.current = false;
+      if (!signal?.aborted) setBusy(false);
+    }
+  }, [api]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    request.current = controller;
+    queueMicrotask(() => { if (!controller.signal.aborted) void load(controller.signal); });
+    return () => controller.abort();
+  }, [load]);
+
+  async function markAsRead(id: string) {
+    const signal = request.current?.signal;
+    if (!signal || signal.aborted || inFlight.current) return;
+    inFlight.current = true;
+    setMarkingId(id);
+    setError("");
+    try {
+      await api(`/notifications/${encodeURIComponent(id)}/read`, { method: "PATCH", signal });
+      if (!signal.aborted) setNotifications((current) => current.map((item) => item.id === id ? { ...item, read: true } : item));
+    } catch (cause) {
+      if (!signal.aborted) setError(errorMessage(cause));
+    } finally {
+      inFlight.current = false;
+      if (!signal.aborted) setMarkingId(null);
+    }
+  }
 
   const filtered = notifications.filter((item) => filter === "all" || (filter === "unread" ? item.read === false : item.read === true));
   const unreadCount = notifications.filter((item) => item.read === false).length;
@@ -67,6 +124,7 @@ function PatientNotifications() {
               <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-primary">{item.category.replaceAll("_", " ")}</p>
               {item.message && <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-neutral-700">{item.message}</p>}
               {item.read !== null && <p className="mt-3 text-xs text-neutral-500">{item.read ? "Read" : "Unread"}</p>}
+              {item.read === false && <button type="button" disabled={busy || markingId !== null} onClick={() => { void markAsRead(item.id); }} className="mt-3 min-h-10 rounded-lg border border-primary/25 px-3 text-sm font-semibold text-primary disabled:opacity-50">{markingId === item.id ? "Marking as read..." : "Mark as read"}</button>}
             </div>
           </div>
         </article>)}

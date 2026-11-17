@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, type ReactNode } from "react";
+import AdminSchedules from "./AdminSchedules";
+import AdminAppointments from "./AdminAppointments";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { staffApi } from "@/lib/api-client";
 import { useAdminQueues, useAnalytics, useAuditLogs, useDepartments, useStaffList } from "@/lib/queries";
@@ -31,7 +33,7 @@ import {
   X,
 } from "lucide-react";
 
-export type AdminPage = "analytics" | "queues" | "staff" | "departments" | "audit";
+export type AdminPage = "analytics" | "queues" | "staff" | "departments" | "audit" | "schedules" | "appointments";
 
 type AdminStaff = {
   staffId: string;
@@ -77,6 +79,8 @@ const navigation: { label: string; href: string; page: AdminPage; icon: typeof B
   { label: "Analytics", href: "/admin", page: "analytics", icon: BarChart3 },
   { label: "Queues", href: "/admin/queues", page: "queues", icon: Activity },
   { label: "Staff", href: "/admin/staff", page: "staff", icon: Users },
+  { label: "Schedules", href: "/admin/schedules", page: "schedules", icon: Clock3 },
+  { label: "Appointments", href: "/admin/appointments", page: "appointments", icon: Stethoscope },
   { label: "Departments", href: "/admin/departments", page: "departments", icon: LayoutDashboard },
   { label: "Audit log", href: "/admin/audit-log", page: "audit", icon: FileText },
 ];
@@ -121,17 +125,17 @@ function AdminHeader({ activePage }: { activePage: AdminPage }) {
 
   return (
     <header className="sticky top-0 z-30 border-b border-primary/15 bg-surface/95 shadow-sm backdrop-blur">
-      <div className="mx-auto flex min-h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto flex min-h-16 max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
         <Link href="/admin" className="shrink-0 text-lg font-bold text-primary no-underline">
           CliniQ <span className="hidden font-normal text-neutral-500 sm:inline">| Admin portal</span>
         </Link>
-        <nav className="hidden items-center gap-1 lg:flex" aria-label="Admin navigation">
+        <nav className="order-last hidden w-full items-center gap-1 overflow-x-auto xl:flex" aria-label="Admin navigation">
           {navigation.map(({ label, href, page, icon: Icon }) => (
             <Link
               key={page}
               href={href}
               className={cx(
-                "inline-flex min-h-10 items-center gap-2 rounded-lg px-3 text-sm font-semibold no-underline transition",
+                "inline-flex min-h-10 shrink-0 items-center gap-2 rounded-lg px-3 text-sm font-semibold no-underline transition",
                 activePage === page ? "bg-accent-surface text-primary" : "text-neutral-600 hover:bg-background hover:text-primary",
               )}
             >
@@ -153,13 +157,13 @@ function AdminHeader({ activePage }: { activePage: AdminPage }) {
             {signingOut ? <Loader2 size={16} className="animate-spin" /> : <LogOut size={16} />}
             {signingOut ? "Signing out..." : "Logout"}
           </button>
-          <button type="button" onClick={() => setMenuOpen((open) => !open)} className="rounded-lg p-2 lg:hidden" aria-label="Toggle admin navigation">
+          <button type="button" onClick={() => setMenuOpen((open) => !open)} className="rounded-lg p-2 xl:hidden" aria-label="Toggle admin navigation">
             {menuOpen ? <X size={22} /> : <Menu size={22} />}
           </button>
         </div>
       </div>
       {menuOpen && (
-        <nav className="border-t border-primary/15 bg-surface px-4 py-3 lg:hidden" aria-label="Admin mobile navigation">
+        <nav className="border-t border-primary/15 bg-surface px-4 py-3 xl:hidden" aria-label="Admin mobile navigation">
           <div className="grid gap-1 sm:grid-cols-2">
             {navigation.map(({ label, href, page, icon: Icon }) => (
               <Link key={page} href={href} onClick={() => setMenuOpen(false)} className={cx("flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold no-underline", activePage === page ? "bg-accent-surface text-primary" : "text-neutral-700")}>
@@ -666,6 +670,8 @@ export default function AdminShell({ activePage, children }: { activePage: Admin
           {activePage === "analytics" && <AnalyticsPage />}
           {activePage === "queues" && <QueuePage />}
           {activePage === "staff" && <StaffPage />}
+          {activePage === "schedules" && <AdminSchedules />}
+          {activePage === "appointments" && <AdminAppointments />}
           {activePage === "departments" && <DepartmentsPage />}
           {activePage === "audit" && <AuditPage />}
         </>}
