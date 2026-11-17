@@ -1,10 +1,12 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import React, { useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/context/AuthContext";
-import { supabase } from "@/lib/supabase";
-import { createStaffApi, StaffApiError } from "@/lib/staff";
+import { adminApi } from "@/lib/api-client";
+import { queryKeys } from "@/lib/query-keys";
+import { useDepartments } from "@/lib/queries";
+import { StaffApiError } from "@/lib/staff";
 import SessionExpiredAction from "@/components/auth/SessionExpiredAction";
 import type { Department } from "@/types/Department";
 
@@ -13,19 +15,7 @@ const inputClass = "h-11 w-full rounded-lg border border-primary/25 bg-backgroun
 
 export default function StaffRegistrationForm() {
     const { user, role: userRole, loading: authLoading } = useAuth();
-    const userId = user?.id ?? null;
-    const api = useMemo(() => createStaffApi({
-        baseUrl: process.env.NEXT_PUBLIC_API_URL,
-        forbiddenMessage: "Only signed-in administrators can perform this action.",
-        getToken: async () => {
-            const { data, error } = await supabase.auth.getSession();
-            return !error && data.session?.user.id === userId ? data.session.access_token : null;
-        },
-        refreshToken: async () => {
-            const { data, error } = await supabase.auth.refreshSession();
-            return !error && data.session?.user.id === userId ? data.session.access_token : null;
-        },
-    }), [userId]);
+    const queryClient = useQueryClient();
     const submitting = useRef(false);
     const [succeeded, setSucceeded] = useState(false);
     const [staffName, setStaffName] = useState("");
@@ -35,37 +25,16 @@ export default function StaffRegistrationForm() {
     const [role, setRole] = useState("DOCTOR");
     const [password, setPassword] = useState("");
     const [confirmPassword, setConfirmPassword] = useState("");
-    const [departments, setDepartments] = useState<Department[]>([]);
     const [message, setMessage] = useState("");
     const [loading, setLoading] = useState(false);
-    const [loadingDepartments, setLoadingDepartments] = useState(true);
 
-    useEffect(() => {
-        if (authLoading || !user || userRole !== "ADMIN") return;
-
-        const controller = new AbortController();
-        async function loadDepartments() {
-            try {
-                const result = await api("/departments", { signal: controller.signal });
-                if (!Array.isArray(result)) throw new Error("The clinic returned an unexpected departments response.");
-                const data = result as Department[];
-                if (!controller.signal.aborted) setDepartments(data);
-            } catch (error) {
-                if (controller.signal.aborted) return;
-                setSucceeded(false);
-                setMessage(
-                    error instanceof Error
-                        ? error.message
-                        : "Could not load departments."
-                );
-            } finally {
-                if (!controller.signal.aborted) setLoadingDepartments(false);
-            }
-        }
-
-        loadDepartments();
-        return () => controller.abort();
-    }, [authLoading, user, userRole, api]);
+    // Departments come from the shared cache used by the rest of the admin portal.
+    const {
+        data: departments = [],
+        isPending: loadingDepartments,
+        error: departmentsError,
+    } = useDepartments<Department[]>({ enabled: !authLoading && Boolean(user) && userRole === "ADMIN" });
+    const displayMessage = message || (departmentsError ? "Could not load departments. Please retry later." : "");
 
     async function handleSubmit( e: React.SubmitEvent<HTMLFormElement> ) {
         e.preventDefault();
@@ -102,7 +71,7 @@ export default function StaffRegistrationForm() {
         setLoading(true);
 
         try {
-            await api("/staff/register", {
+            await adminApi("/staff/register", {
                 method: "POST",
                 body: JSON.stringify({
                         firstName: staffName.trim(),
@@ -113,6 +82,7 @@ export default function StaffRegistrationForm() {
                         password,
                 }),
             });
+            await queryClient.invalidateQueries({ queryKey: queryKeys.staffList });
 
             setSucceeded(true);
             setMessage("Staff account created successfully. The demo staff list will not display this account.");
@@ -142,7 +112,6 @@ export default function StaffRegistrationForm() {
 
     return (
         <div className="mx-auto w-full max-w-md">
-            <Link href="/admin/staff" className="mb-5 inline-flex min-h-11 items-center rounded-lg text-sm font-semibold text-primary underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">Back to staff accounts</Link>
             <form
                 onSubmit={handleSubmit}
                 aria-busy={loading}
@@ -288,9 +257,9 @@ export default function StaffRegistrationForm() {
                     role={succeeded ? "status" : "alert"}
                     aria-live={succeeded ? "polite" : "assertive"}
                     aria-atomic="true"
-                    className={message ? `wrap-break-word rounded-lg border px-3 py-2.5 text-sm font-medium ${succeeded ? "border-success/20 bg-success-background text-success" : "border-error/20 bg-error-background text-error"}` : "sr-only"}
+                    className={displayMessage ? `wrap-break-word rounded-lg border px-3 py-2.5 text-sm font-medium ${succeeded ? "border-success/20 bg-success-background text-success" : "border-error/20 bg-error-background text-error"}` : "sr-only"}
                 >
-                    {message}<SessionExpiredAction message={message} returnTo="/admin/staff/register" />
+                    {displayMessage}<SessionExpiredAction message={displayMessage} returnTo="/admin/staff/register" />
                 </p>
 
                 <button

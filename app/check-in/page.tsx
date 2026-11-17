@@ -1,16 +1,15 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
-import type { User } from "@supabase/supabase-js";
+import React, { Suspense, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { CheckCircle2, LogIn, Stethoscope } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
-import { supabase } from "@/lib/supabase";
-import {
-  createBookingApi, parseBookingConfirmation, BookingRequestError,
-  type BookingConfirmation,
-} from "@/lib/booking";
+import { bookingApi } from "@/lib/api-client";
+import { queryKeys } from "@/lib/query-keys";
+import { useBooking, useStaffAppointment } from "@/lib/queries";
+import { parseBookingConfirmation, BookingRequestError, type BookingConfirmation } from "@/lib/booking";
 import type { StaffAppointment } from "@/lib/staff";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -69,75 +68,42 @@ function CheckInContent() {
       </main>
     );
   }
-  return <CheckIn key={user.id} user={user} role={role} appointmentId={appointmentId} />;
+  return <CheckIn key={user.id} role={role} appointmentId={appointmentId} />;
 }
 
-function CheckIn({ user, role, appointmentId }: { user: User; role: string; appointmentId: string }) {
+function CheckIn({ role, appointmentId }: { role: string; appointmentId: string }) {
   const isPatient = role === "PATIENT";
-  const [appointment, setAppointment] = useState<BookingConfirmation | StaffAppointment | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const queryClient = useQueryClient();
   const [checkingIn, setCheckingIn] = useState(false);
   const [done, setDone] = useState("");
-  const lifetime = useRef<AbortController | null>(null);
-  const userId = user.id;
+  const [actionError, setActionError] = useState("");
 
-  const api = useMemo(() => createBookingApi({
-    baseUrl: process.env.NEXT_PUBLIC_API_URL,
-    getToken: async () => {
-      const { data, error } = await supabase.auth.getSession();
-      return !error && data.session?.user.id === userId ? data.session.access_token : null;
-    },
-    refreshToken: async () => {
-      const { data, error } = await supabase.auth.refreshSession();
-      return !error && data.session?.user.id === userId ? data.session.access_token : null;
-    },
-  }), [userId]);
-
-  const load = useCallback(async (signal: AbortSignal) => {
-    setLoading(true);
-    setError("");
-    try {
-      if (isPatient) {
-        const data = await api(`/bookings/${appointmentId}`, { signal });
-        if (signal.aborted) return;
-        setAppointment(parseBookingConfirmation(data));
-      } else {
-        const data = await api(`/appointments/${appointmentId}`, { signal }) as StaffAppointment | null;
-        if (signal.aborted) return;
-        setAppointment(data);
-      }
-    } catch (cause) {
-      if (!signal.aborted) setError(errorMessage(cause, "Could not load the appointment. Please retry."));
-    } finally {
-      if (!signal.aborted) setLoading(false);
-    }
-  }, [api, appointmentId, isPatient]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    lifetime.current = controller;
-    queueMicrotask(() => {
-      if (!controller.signal.aborted) void load(controller.signal);
-    });
-    return () => controller.abort();
-  }, [load]);
+  // Appointment details are read from the shared query cache.
+  const patientQuery = useBooking(appointmentId, { enabled: isPatient });
+  const staffQuery = useStaffAppointment(appointmentId, { enabled: !isPatient });
+  const active = isPatient ? patientQuery : staffQuery;
+  const loading = active.isPending || active.isFetching;
+  const error = actionError || (active.error ? errorMessage(active.error, "Could not load the appointment. Please retry.") : "");
+  const appointment: BookingConfirmation | StaffAppointment | null = isPatient
+    ? patientQuery.data ? parseBookingConfirmation(patientQuery.data) : null
+    : staffQuery.data ?? null;
 
   async function checkIn() {
-    const signal = lifetime.current?.signal;
-    if (!signal || signal.aborted || checkingIn || !appointment) return;
-    if (appointment.appointmentStatus !== "BOOKED") return;
+    if (checkingIn || !appointment || appointment.appointmentStatus !== "BOOKED") return;
     setCheckingIn(true);
-    setError("");
     setDone("");
+    setActionError("");
     try {
-      await api(`/appointments/${appointmentId}/check-in`, { method: "POST", signal });
-      await load(signal);
+      await bookingApi(`/appointments/${appointmentId}/check-in`, { method: "POST" });
+      await queryClient.invalidateQueries({
+        queryKey: isPatient ? queryKeys.bookings : queryKeys.staffDashboard,
+      });
+      await active.refetch();
       setDone("You're checked in. Please take a seat — the clinic will call you.");
     } catch (cause) {
-      if (!signal.aborted) setError(errorMessage(cause, "Check-in failed. Please try again or ask reception."));
+      setActionError(errorMessage(cause, "Check-in failed. Please try again or ask reception."));
     } finally {
-      if (!signal.aborted) setCheckingIn(false);
+      setCheckingIn(false);
     }
   }
 

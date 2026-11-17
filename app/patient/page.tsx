@@ -1,76 +1,104 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, Clock, XCircle } from "lucide-react";
+import { useState, useCallback, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { CalendarPlus, CheckCircle2, Clock, ClipboardList, QrCode, Loader2, UserRound, Bell, XCircle } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { bookingApi } from "@/lib/api-client";
+import { queryKeys } from "@/lib/query-keys";
+import { useBookings } from "@/lib/queries";
+import AppointmentCard from "@/components/appointments/AppointmentCard";
+import PageHeader from "@/components/ui/PageHeader";
 
-type Booking = {
-  appointmentId: string;
-  appointmentStatus: string;
-  slotDate: string;
-  appointmentTime?: string;
-  startTime: string;
-  endTime: string;
-  doctorName: string;
-  departmentName: string | null;
-};
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL;
+const actions = [
+  {
+    icon: CalendarPlus,
+    title: "Book appointment",
+    description: "Choose a doctor and clinic time, then confirm your booking.",
+    href: "/patient/book-appointment",
+  },
+  {
+    icon: ClipboardList,
+    title: "View appointments",
+    description: "See your confirmed appointments and booking details.",
+    href: "/patient/appointments",
+  },
+  {
+    icon: QrCode,
+    title: "Check in with QR",
+    description: "Scan to confirm your arrival instantly.",
+    href: "/patient/check-in",
+  },
+  {
+    icon: Clock,
+    title: "Track queue position",
+    description: "See where you are in the waiting list.",
+    href: "/patient/queue-tracking",
+  },
+  {
+    icon: UserRound,
+    title: "Patient profile",
+    description: "View and update your name, National ID, and phone number.",
+    href: "/patient/profile",
+  },
+  {
+    icon: Bell,
+    title: "Notifications",
+    description: "View appointment confirmations, queue updates, and clinic messages.",
+    href: "/patient/notifications",
+  },
+];
 
 export default function PatientPortal() {
-  const { profile, user, session } = useAuth();
-  const [bookings, setBookings] = useState<Booking[]>([]);
+  const { profile, user } = useAuth();
+  const queryClient = useQueryClient();
   const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  // Appointments come from the shared, periodically refreshed cache.
+  const { data: bookings = [], isPending: loading, error: loadError } = useBookings();
   const patientDisplayName = profile?.firstName
     ? `${profile.firstName} ${profile.lastName || ""}`.trim()
     : user?.email || "Patient";
 
-  const loadBookings = useCallback(async () => {
-    if (!API_URL || !session?.access_token) return;
-    const response = await fetch(`${API_URL}/api/bookings`, {
-      headers: { Authorization: `Bearer ${session.access_token}` },
-      cache: "no-store",
-    });
-    if (!response.ok) throw new Error("Could not load your appointments.");
-    setBookings(await response.json());
-  }, [session]);
-
-  useEffect(() => {
-    let active = true;
-    Promise.resolve().then(() => loadBookings())
-      .catch((error) => active && setMessage(error instanceof Error ? error.message : "Could not load appointments."))
-      .finally(() => active && setLoading(false));
-    return () => { active = false; };
-  }, [loadBookings]);
-
   async function updateBooking(id: string, action: "check-in" | "cancel") {
-    if (!API_URL || !session?.access_token) return;
+    if (busyAction) return;
+    setBusyAction(`${id}-${action}`);
     setMessage("");
-    const response = await fetch(`${API_URL}/api/appointments/${id}/${action}`, {
-      method: action === "cancel" ? "PATCH" : "POST",
-      headers: { Authorization: `Bearer ${session.access_token}` },
-    });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      setMessage(result.message || "The appointment could not be updated.");
-      return;
+    try {
+      await bookingApi(`/appointments/${id}/${action}`, {
+        method: action === "cancel" ? "PATCH" : "POST",
+      });
+      setMessage(action === "cancel" ? "Appointment cancelled." : "Checked in. You are now in the clinic queue.");
+      // Refresh the shared cache so every page with appointments stays in sync.
+      await queryClient.invalidateQueries({ queryKey: queryKeys.bookings });
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : "The appointment could not be updated.");
+    } finally {
+      setBusyAction(null);
     }
-    setMessage(action === "cancel" ? "Appointment cancelled." : "Checked in. You are now in the clinic queue.");
-    await loadBookings();
   }
+
+  const statusMessage = message || (loadError instanceof Error ? loadError.message : "");
 
   return (
     <main className="min-h-screen bg-background px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto w-full max-w-5xl">
-        <header>
-          <p className="text-sm font-semibold uppercase tracking-[0.14em] text-primary">Patient portal</p>
-          <h1 className="mt-2 text-4xl font-bold">Welcome, {patientDisplayName}</h1>
-          <p className="mt-3 text-neutral-600">Manage appointments, check in, and follow your queue status.</p>
-        </header>
+        <PageHeader
+          title={`Welcome, ${patientDisplayName}`}
+          description="Manage appointments, check in, and follow your queue status."
+        />
 
-        {message && <p role="status" className="mt-5 rounded-lg border border-primary/20 bg-accent-surface p-3 text-sm">{message}</p>}
+        <div className="mt-8 flex flex-wrap gap-3">
+          <Link href="/patient/book-appointment" className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white">
+            <CalendarPlus size={17} /> Book appointment
+          </Link>
+          <Link href="/patient/book-appointment#my-bookings" className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-primary/25 px-4 text-sm font-semibold text-primary">
+            View booking availability
+          </Link>
+        </div>
+
+        {statusMessage && <p role="status" className="mt-5 rounded-lg border border-primary/20 bg-accent-surface p-3 text-sm">{statusMessage}</p>}
 
         <section className="mt-8" aria-labelledby="appointments-heading">
           <h2 id="appointments-heading" className="text-2xl font-bold">Your appointments</h2>
@@ -79,12 +107,44 @@ export default function PatientPortal() {
           ) : (
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               {bookings.map((booking) => (
-                <article key={booking.appointmentId} className="rounded-xl border border-primary/15 bg-surface p-5 shadow-sm">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h3 className="font-bold">{booking.doctorName}</h3>
-                      <p className="text-sm text-neutral-600">{booking.departmentName || "Clinic"} · {booking.slotDate}</p>
+                <AppointmentCard
+                  key={booking.appointmentId}
+                  title={booking.departmentName || "Clinic"}
+                  subtitle={`Dr. ${booking.doctorName} · ${booking.slotDate} · ${booking.appointmentTime?.slice(0, 5) ?? `${booking.startTime.slice(0, 5)} – ${booking.endTime.slice(0, 5)}`} (clinic time)`}
+                  status={booking.appointmentStatus}
+                  details={[
+                    { label: "Date", value: booking.slotDate },
+                    { label: "Time", value: booking.appointmentTime?.slice(0, 5) ?? `${booking.startTime.slice(0, 5)} – ${booking.endTime.slice(0, 5)}` },
+                  ]}
+                  footer={
+                    <div className="mt-5 flex flex-wrap gap-2">
+                      {booking.appointmentStatus === "BOOKED" && (
+                        <>
+                          <button
+                            type="button"
+                            disabled={Boolean(busyAction)}
+                            onClick={() => void updateBooking(booking.appointmentId, "check-in")}
+                            className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-primary px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {busyAction === `${booking.appointmentId}-check-in` ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
+                            {busyAction === `${booking.appointmentId}-check-in` ? "Checking in..." : "Check in"}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={Boolean(busyAction)}
+                            onClick={() => void updateBooking(booking.appointmentId, "cancel")}
+                            className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-red-200 px-3 text-sm font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {busyAction === `${booking.appointmentId}-cancel` ? <Loader2 size={16} className="animate-spin" /> : <XCircle size={16} />}
+                            {busyAction === `${booking.appointmentId}-cancel` ? "Cancelling..." : "Cancel"}
+                          </button>
+                        </>
+                      )}
+                      {booking.appointmentStatus === "WAITING" && <span className="text-sm font-semibold text-success">You are in the queue.</span>}
                     </div>
+                  }
+                  href={`/patient/appointments/${encodeURIComponent(booking.appointmentId)}`}
+                />
                     <span className="rounded-full bg-accent-surface px-2.5 py-1 text-xs font-semibold text-primary">{booking.appointmentStatus}</span>
                   </div>
                   <p className="mt-4 flex items-center gap-2 text-sm"><Clock size={16} /> {booking.appointmentTime?.slice(0, 5) ?? `${booking.startTime} – ${booking.endTime}`}</p>
