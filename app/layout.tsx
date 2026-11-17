@@ -4,6 +4,7 @@ import "./globals.css";
 import React from "react";
 import { Providers } from "@/app/providers";
 import { AuthProvider } from "@/context/AuthContext";
+import RealtimeProvider from "@/components/RealtimeProvider";
 import AuthGuard from "@/components/auth/AuthGuard";
 
 const bricolage = Bricolage_Grotesque({
@@ -29,9 +30,11 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     >
       <body className={`${dmSans.className} min-h-full`}>
         <Providers>
-          <AuthProvider>
-            <AuthGuard>{children}</AuthGuard>
-          </AuthProvider>
+          <RealtimeProvider>
+            <AuthProvider>
+              <AuthGuard>{children}</AuthGuard>
+            </AuthProvider>
+          </RealtimeProvider>
         </Providers>
       </body>
     </html>

@@ -1,12 +1,25 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
+import { Loader2 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { getRoleDestination } from "@/lib/auth";
 
 export default function Home() {
   const { user, role, loading, signOut } = useAuth();
+  const [signingOut, setSigningOut] = useState(false);
   const destination = getRoleDestination(role);
+
+  async function handleSignOut() {
+    if (signingOut) return;
+    setSigningOut(true);
+    try {
+      await signOut();
+    } finally {
+      setSigningOut(false);
+    }
+  }
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-background px-6 py-12">
@@ -34,10 +47,12 @@ export default function Home() {
               </Link>
               <button
                 type="button"
-                onClick={() => signOut()}
-                className="flex h-12 w-full items-center justify-center rounded-md border-2 border-primary bg-transparent px-6 text-lg font-semibold text-primary no-underline transition hover:bg-accent-surface active:bg-accent-surface sm:w-auto"
+                onClick={() => void handleSignOut()}
+                disabled={signingOut}
+                className="flex h-12 w-full items-center justify-center gap-2 rounded-md border-2 border-primary bg-transparent px-6 text-lg font-semibold text-primary no-underline transition hover:bg-accent-surface active:bg-accent-surface disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
               >
-                Sign out
+                {signingOut && <Loader2 size={18} className="animate-spin" aria-hidden="true" />}
+                {signingOut ? "Signing out..." : "Sign out"}
               </button>
             </>
           ) : (

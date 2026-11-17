@@ -2,21 +2,27 @@
 
 import React, { useEffect, useState } from "react";
 import { CheckCircle2, Loader2, QrCode, X } from "lucide-react";
-import { supabase } from "@/lib/supabase";
-import { useAuth } from "@/context/AuthContext";
+import { useCheckInQr } from "@/lib/queries";
 
 /**
- * Fetches the check-in QR image for an appointment with the caller's bearer token
- * and shows it in a modal. The QR encodes a link to /check-in?id=<appointmentId>.
+ * Fetches the check-in QR image for an appointment through the shared query
+ * cache and shows it in a modal. The QR encodes a link to /check-in?id=<id>.
  */
 export default function CheckInQr({ appointmentId }: { appointmentId: string }) {
-  const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [src, setSrc] = useState<string | null>(null);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const { data: blob, isPending: loading, error, refetch } = useCheckInQr(appointmentId, open);
 
+  // Turn the cached blob into an object URL, revoking it when it changes/closes.
   useEffect(() => {
+    if (!blob) {
+      setSrc(null);
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    setSrc(url);
+    return () => URL.revokeObjectURL(url);
+  }, [blob]);
     if (!open) return;
     const controller = new AbortController();
     let objectUrl: string | null = null;
@@ -94,7 +100,8 @@ export default function CheckInQr({ appointmentId }: { appointmentId: string }) 
               {loading && <Loader2 className="animate-spin text-primary" size={36} aria-label="Loading QR" />}
               {error && (
                 <div role="alert" className="text-sm text-error">
-                  <p>{error}</p>
+                  <p>{error instanceof Error ? error.message : "The QR code could not be loaded."}</p>
+                  <button type="button" onClick={() => void refetch()} className="mt-2 min-h-9 text-primary underline">Retry</button>
                   <button type="button" onClick={() => setOpen(false)} className="mt-2 min-h-9 text-primary underline">Close</button>
                 </div>
               )}

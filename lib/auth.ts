@@ -150,7 +150,7 @@ export function isRouteAllowed(pathname: string, role: UserRole | null): boolean
   }
 
   // Patient routes: strictly PATIENT only
-  if (path === "/patient" || path.startsWith("/patient/") || path === "/patientTest") {
+  if (path === "/patient" || path.startsWith("/patient/")) {
     return role === "PATIENT";
   }
 
