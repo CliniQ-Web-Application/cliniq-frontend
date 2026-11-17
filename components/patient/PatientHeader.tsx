@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, CalendarPlus, Clock3, Loader2, LogOut, Menu, QrCode, UserRound, X } from "lucide-react";
+import { Bell, CalendarPlus, Clock3, LogOut, Menu, QrCode, UserRound, X } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 
@@ -18,21 +18,10 @@ const navigation = [
 export default function PatientHeader() {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [signingOut, setSigningOut] = useState(false);
   const { profile, user, signOut } = useAuth();
   const patientName = profile?.firstName
     ? `${profile.firstName} ${profile.lastName ?? ""}`.trim()
     : profile?.email ?? user?.email ?? "Patient";
-
-  async function handleSignOut() {
-    if (signingOut) return;
-    setSigningOut(true);
-    try {
-      await signOut();
-    } finally {
-      setSigningOut(false);
-    }
-  }
 
   return (
     <header className="sticky top-0 z-30 border-b border-primary/15 bg-surface/95 shadow-sm backdrop-blur">
@@ -63,12 +52,11 @@ export default function PatientHeader() {
           </span>
           <button
             type="button"
-            onClick={() => void handleSignOut()}
-            disabled={signingOut}
-            className="hidden min-h-10 items-center gap-2 rounded-lg border border-primary/25 px-3 text-sm font-semibold text-primary transition hover:bg-accent-surface disabled:cursor-not-allowed disabled:opacity-50 sm:flex"
+            onClick={() => void signOut()}
+            className="hidden min-h-10 items-center gap-2 rounded-lg border border-primary/25 px-3 text-sm font-semibold text-primary transition hover:bg-accent-surface sm:flex"
           >
-            {signingOut ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <LogOut size={16} aria-hidden="true" />}
-            {signingOut ? "Signing out..." : "Logout"}
+            <LogOut size={16} aria-hidden="true" />
+            Logout
           </button>
           <button
             type="button"
@@ -104,13 +92,12 @@ export default function PatientHeader() {
               type="button"
               onClick={() => {
                 setMenuOpen(false);
-                void handleSignOut();
+                void signOut();
               }}
-              disabled={signingOut}
-              className="flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold text-red-600 hover:bg-red-50 sm:hidden"
             >
-              {signingOut ? <Loader2 size={17} className="animate-spin" aria-hidden="true" /> : <LogOut size={17} aria-hidden="true" />}
-              {signingOut ? "Signing out..." : "Logout"}
+              <LogOut size={17} aria-hidden="true" />
+              Logout
             </button>
           </div>
         </nav>

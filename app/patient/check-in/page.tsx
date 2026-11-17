@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { User } from "@supabase/supabase-js";
 import QRCode from "qrcode";
+import Image from "next/image";
 import Link from "next/link";
-import { RefreshCw } from "lucide-react";
+import { ArrowLeft, QrCode, RefreshCw } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
-import { BookingRequestError } from "@/lib/booking";
-import { useBookings } from "@/lib/queries";
+import { supabase } from "@/lib/supabase";
+import { BookingRequestError, createBookingApi, parseBookingConfirmation, type BookingConfirmation } from "@/lib/booking";
 import { appointmentStatusPresentation } from "@/lib/appointment-status";
-import PageHeader from "@/components/ui/PageHeader";
 import { checkInQrPayload } from "@/lib/check-in-qr";
 import SessionExpiredAction from "@/components/auth/SessionExpiredAction";
 
@@ -22,54 +23,93 @@ function requestError(cause: unknown) {
 export default function PatientCheckInPage() {
   const { user, profile, role, session, loading } = useAuth();
   if (user && profile?.id === user.id && role === "PATIENT" && session?.user.id === user.id) {
-    return <PatientCheckIn key={user.id} />;
+    return <PatientCheckIn key={user.id} user={user} />;
   }
   return <main className="min-h-screen bg-background p-8">{loading ? <p role="status">Checking your patient session...</p> : <p>Patient sign-in is required. <Link href="/auth/signin" className="text-primary underline">Sign in</Link></p>}</main>;
 }
 
-function PatientCheckIn() {
+function PatientCheckIn({ user }: { user: User }) {
+  const [bookings, setBookings] = useState<BookingConfirmation[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [qrImage, setQrImage] = useState("");
+  const [loading, setLoading] = useState(true);
   const [qrLoading, setQrLoading] = useState(false);
-  const [qrError, setQrError] = useState("");
-  // Appointments come from the shared cache, refreshed periodically in the background.
-  const { data: bookings = [], isPending: loading, isFetching, error, refetch } = useBookings();
-  const displayError = qrError || (error ? requestError(error) : "");
+  const [error, setError] = useState("");
+  const controllerRef = useRef<AbortController | null>(null);
+  const api = useMemo(() => createBookingApi({
+    baseUrl: process.env.NEXT_PUBLIC_API_URL,
+    getToken: async () => {
+      const { data, error: authError } = await supabase.auth.getSession();
+      return !authError && data.session?.user.id === user.id ? data.session.access_token : null;
+    },
+    refreshToken: async () => {
+      const { data, error: authError } = await supabase.auth.refreshSession();
+      return !authError && data.session?.user.id === user.id ? data.session.access_token : null;
+    },
+  }), [user.id]);
+
+  const loadBookings = useCallback(async (signal: AbortSignal) => {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await api("/bookings", { signal });
+      if (!Array.isArray(data)) throw new Error("The clinic returned an unexpected appointments response.");
+      const list = data.map(parseBookingConfirmation);
+      if (!signal.aborted) {
+        setBookings(list);
+        setSelectedId((current) => current && list.some((item) => item.appointmentId === current)
+          ? current
+          : list.find((item) => item.appointmentStatus.toUpperCase() === "BOOKED")?.appointmentId ?? "");
+      }
+    } catch (cause) {
+      if (!signal.aborted) setError(requestError(cause));
+    } finally {
+      if (!signal.aborted) setLoading(false);
+    }
+  }, [api]);
 
   useEffect(() => {
-    setSelectedId((current) => current && bookings.some((item) => item.appointmentId === current)
-      ? current
-      : bookings.find((item) => item.appointmentStatus.toUpperCase() === "BOOKED")?.appointmentId ?? "");
-  }, [bookings]);
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    queueMicrotask(() => { if (!controller.signal.aborted) void loadBookings(controller.signal); });
+    return () => controller.abort();
+  }, [loadBookings]);
 
   const selected = bookings.find((booking) => booking.appointmentId === selectedId);
   useEffect(() => {
     let cancelled = false;
     setQrImage("");
-    setQrError("");
     if (!selected || selected.appointmentStatus.toUpperCase() !== "BOOKED") return () => { cancelled = true; };
-    queueMicrotask(() => { if (!cancelled) setQrLoading(true); });
-    void QRCode.toDataURL(qrPayload(selected.appointmentId), { errorCorrectionLevel: "M", margin: 2, width: 280 })
+    setQrLoading(true);
+    void QRCode.toDataURL(checkInQrPayload(selected.appointmentId, window.location.origin), { errorCorrectionLevel: "M", margin: 2, width: 280 })
       .then((image) => { if (!cancelled) setQrImage(image); })
-      .catch(() => { if (!cancelled) setQrError("Could not prepare your check-in QR code. Please select the appointment again."); })
+      .catch(() => { if (!cancelled) setError("Could not prepare your check-in QR code. Please select the appointment again."); })
       .finally(() => { if (!cancelled) setQrLoading(false); });
     return () => { cancelled = true; };
   }, [selected]);
 
+  const retry = () => {
+    const controller = controllerRef.current;
+    if (controller && !controller.signal.aborted) void loadBookings(controller.signal);
+  };
+
   return <main className="min-h-screen bg-background px-4 py-8 sm:px-6 lg:px-8">
     <div className="mx-auto w-full max-w-2xl">
-      <PageHeader
-        title="Check in with QR"
-        description="Choose a booked appointment and show its QR code to clinic staff. Staff will scan it to record your arrival."
-      />
-      {displayError && <div role="alert" className="mb-5 rounded-xl border border-error/20 bg-error-background p-4 text-sm text-error">{displayError}<SessionExpiredAction message={displayError} returnTo="/patient/check-in" /><button type="button" disabled={loading} onClick={() => void refetch()} className="ml-2 underline disabled:opacity-50">{loading ? "Retrying..." : "Retry"}</button></div>}
-      <section aria-busy={loading || isFetching} className="space-y-4 rounded-2xl border border-primary/15 bg-surface p-5 shadow-sm sm:p-7">
+      <Link href="/patient" className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-primary hover:underline"><ArrowLeft size={18} aria-hidden="true" /> Back to patient portal</Link>
+      <header className="mb-8 mt-8">
+        <QrCode className="mb-3 text-primary" size={30} aria-hidden="true" />
+        <p className="text-sm font-semibold uppercase tracking-widest text-primary">Clinic arrival</p>
+        <h1 className="mt-2 text-3xl font-bold sm:text-4xl">Check in with QR</h1>
+        <p className="mt-3 text-neutral-600">Choose a booked appointment and show its QR code to clinic staff. Staff will scan it to record your arrival.</p>
+      </header>
+      {error && <div role="alert" className="mb-5 rounded-xl border border-error/20 bg-error-background p-4 text-sm text-error">{error}<SessionExpiredAction message={error} returnTo="/patient/check-in" /><button type="button" disabled={loading} onClick={retry} className="ml-2 underline">Retry</button></div>}
+      <section aria-busy={loading} className="space-y-4 rounded-2xl border border-primary/15 bg-surface p-5 shadow-sm sm:p-7">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-lg font-bold">Your appointments</h2>
-          <button type="button" onClick={() => void refetch()} disabled={loading || isFetching} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-primary/25 px-3 text-sm font-semibold text-primary disabled:opacity-50"><RefreshCw size={15} aria-hidden="true" className={loading || isFetching ? "animate-spin" : ""} /> {loading || isFetching ? "Refreshing..." : "Refresh"}</button>
+          <button type="button" onClick={retry} disabled={loading} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-primary/25 px-3 text-sm font-semibold text-primary disabled:opacity-50"><RefreshCw size={15} aria-hidden="true" /> Refresh</button>
         </div>
         {loading && <p role="status" className="text-sm text-neutral-600">Loading your appointments...</p>}
-        {!loading && !displayError && bookings.length === 0 && <p role="status" className="text-sm text-neutral-600">No appointments found. <Link href="/patient/book-appointment" className="text-primary underline">Book an appointment</Link>.</p>}
+        {!loading && !error && bookings.length === 0 && <p role="status" className="text-sm text-neutral-600">No appointments found. <Link href="/patient/book-appointment" className="text-primary underline">Book an appointment</Link>.</p>}
         {bookings.length > 0 && <label className="block text-sm font-semibold">Select an appointment
           <select value={selectedId} onChange={(event) => setSelectedId(event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-primary/25 bg-background px-3 text-sm">
             <option value="">Choose an appointment</option>
@@ -80,7 +120,7 @@ function PatientCheckIn() {
           <p className="font-semibold">{selected.departmentName ?? "Clinic appointment"} · Dr. {selected.doctorName}</p>
           <p className="mt-1 text-sm text-neutral-600">{selected.slotDate} · {selected.startTime.slice(0, 5)} (clinic time)</p>
           {qrLoading && <p role="status" className="mt-4">Preparing your QR code...</p>}
-          {qrImage && <div className="mx-auto mt-4 w-fit rounded-xl bg-white p-3"><img src={qrImage} alt={`Check-in QR code for appointment ${selected.appointmentId}`} width={280} height={280} /></div>}
+          {qrImage && <div className="mx-auto mt-4 w-fit rounded-xl bg-white p-3"><Image src={qrImage} alt={`Check-in QR code for appointment ${selected.appointmentId}`} width={280} height={280} unoptimized /></div>}
           <p className="mt-3 text-sm text-neutral-700">Keep this code on your screen and show it to clinic staff. It contains your appointment reference only.</p>
           <p className="mt-2 break-all font-mono text-xs text-neutral-500">Appointment ID: {selected.appointmentId}</p>
         </div>}
